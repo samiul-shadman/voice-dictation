@@ -1,0 +1,20 @@
+:root[data-window="indicator"],
+:root[data-window="recording-indicator"] {
+  background: transparent;
+  overflow: hidden;
+}
+
+:root[data-window="indicator"] body,
+:root[data-window="recording-indicator"] body {
+  background: transparent;
+  overflow: hidden;
+}
+
+.glass-pill {
+  background: rgba(16, 19, 24, 0.72);
+  backdrop-filter: blur(14px) saturate(1.2);
+  -webkit-backdrop-filter: blur(14px) saturate(1.2);
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  box-shadow: var(--shadow-overlay);
+}

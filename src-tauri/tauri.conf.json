@@ -12,9 +12,16 @@
   "app": {
     "windows": [
       {
-        "title": "local-audio-transcription-tool-v2",
-        "width": 800,
-        "height": 600
+        "label": "main",
+        "title": "Voice Dictation",
+        "width": 880,
+        "height": 640,
+        "minWidth": 760,
+        "minHeight": 560,
+        "resizable": true,
+        "decorations": true,
+        "theme": "Dark",
+        "center": true
       }
     ],
     "security": {
