@@ -48,12 +48,23 @@ impl Default for ShortcutsSettings {
     fn default() -> Self {
         Self {
             voice_note: ShortcutConfig {
-                combo: Some("ctrl+shift+space".to_string()),
+                combo: Some(default_voice_note_combo().to_string()),
                 trigger: "hold".to_string(),
                 enabled: true,
             },
             record: ShortcutConfig::default(),
         }
+    }
+}
+
+fn default_voice_note_combo() -> &'static str {
+    #[cfg(target_os = "macos")]
+    {
+        "meta+shift+space"
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        "ctrl+shift+space"
     }
 }
 
@@ -418,7 +429,7 @@ mod tests {
         assert!(loaded.global_shortcuts_enabled);
         assert_eq!(
             loaded.shortcuts.voice_note.combo.as_deref(),
-            Some("ctrl+shift+space")
+            Some(default_voice_note_combo())
         );
         assert_eq!(loaded.shortcuts.voice_note.trigger, "hold");
         assert!(loaded.shortcuts.voice_note.enabled);

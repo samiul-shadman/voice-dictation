@@ -5,7 +5,7 @@ import { Cpu, Keyboard, LibraryBig, Mic, Settings as SettingsIcon, Wand } from "
 import { ToastViewport } from "./components/ui";
 import { OverlaySync } from "./lib/OverlaySync";
 import { initShortcutEngine } from "./lib/shortcuts/engine";
-import { useEnvInfo } from "./lib/stores/env";
+import { useEnvInfo, isMac } from "./lib/stores/env";
 import { AnimationsPage } from "./pages/AnimationsPage";
 import { IndicatorPage } from "./pages/IndicatorPage";
 import { LibraryPage } from "./pages/LibraryPage";
@@ -45,9 +45,12 @@ function NavGroup({ label, children }: { label: string; children: ReactNode }) {
 function EnvFooter() {
   const env = useEnvInfo();
   const navigate = useNavigate();
-  const depsOk = Boolean(env && env.ffmpeg && env.ffprobe && env.pulseInput);
+  const mac = isMac(env);
+  const micOk = Boolean(env?.micAvailable);
+  const pasteOk = !mac || env?.accessibilityPermission === true;
+  const depsOk = env !== null && micOk && pasteOk;
   const missing = env
-    ? [env.ffmpeg ? null : "ffmpeg", env.ffprobe ? null : "ffprobe", env.pulseInput ? null : "audio input"]
+    ? [micOk ? null : "microphone", pasteOk ? null : "paste permission"]
         .filter((item): item is string => item !== null)
         .join(", ")
     : null;

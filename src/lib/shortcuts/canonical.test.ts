@@ -119,3 +119,27 @@ describe("humanize", () => {
     }
   });
 });
+
+describe("platform-aware display", () => {
+  it("renders mac glyphs", () => {
+    expect(humanize("meta+shift+space", "macos")).toBe("⌘ + ⇧ + Space");
+    expect(humanize("ctrl+shift+a", "macos")).toBe("⌃ + ⇧ + A");
+  });
+
+  it("renders windows labels", () => {
+    expect(humanize("meta+shift+space", "windows")).toBe("Win + Shift + Space");
+    expect(humanize("ctrl+shift+a", "windows")).toBe("Ctrl + Shift + A");
+  });
+
+  it("round-trips mac glyphs through canonicalCombo", () => {
+    for (const canon of ["ctrl+shift+space", "meta+n", "ctrl+alt+up"]) {
+      expect(canonicalCombo(humanize(canon, "macos"))).toBe(canon);
+    }
+  });
+
+  it("maps meta to the platform accelerator", () => {
+    expect(toAccelerator("meta+shift+space", "macos")).toBe("Meta+Shift+Space");
+    expect(toAccelerator("meta+shift+space", "linux")).toBe("Super+Shift+Space");
+    expect(toAccelerator("meta+shift+space", "windows")).toBe("Super+Shift+Space");
+  });
+});

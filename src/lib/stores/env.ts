@@ -1,15 +1,22 @@
 import { useSyncExternalStore } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
-export type SessionType = "x11" | "wayland-wlroots" | "wayland-gnome" | "other";
+export type SessionType = "x11" | "wayland-wlroots" | "wayland-gnome" | "native" | "other";
 
 export interface EnvInfo {
-  ffmpeg: boolean;
-  ffprobe: boolean;
-  libmp3lame: boolean;
-  pulseInput: boolean;
+  platform: string;
+  micAvailable: boolean;
+  accessibilityPermission: boolean | null;
   sessionType: SessionType;
-  wtype: boolean;
+  wtype: boolean | null;
+}
+
+export function isMac(info: EnvInfo | null): boolean {
+  return info?.platform === "macos";
+}
+
+export function isLinux(info: EnvInfo | null): boolean {
+  return info?.platform === "linux";
 }
 
 let state: EnvInfo | null = null;

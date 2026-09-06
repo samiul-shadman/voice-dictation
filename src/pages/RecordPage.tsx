@@ -3,10 +3,9 @@ import { Link } from "react-router-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { openPath, revealItemInDir } from "@tauri-apps/plugin-opener";
-import { FolderInput, Keyboard, Mic, TriangleAlert } from "lucide-react";
-import { Button, IconButton, PageHeader, SectionCard, SegmentedControl, toast } from "../components/ui";
+import { Keyboard, Mic, TriangleAlert } from "lucide-react";
+import { Button, PageHeader, SectionCard, SegmentedControl, toast } from "../components/ui";
 import RecordingButton from "../components/feature/RecordingButton";
-import { copyTextToClipboard } from "../components/feature/TranscriptPanel";
 import { humanDuration, humanSize } from "../lib/format";
 import { useLevel } from "../lib/stores/levels";
 import {
@@ -19,11 +18,19 @@ import { useAudioPrefs, useSettings, useShortcutConfig } from "../lib/stores/set
 import type { AudioFormat } from "../lib/stores/settings";
 import { useEnvInfo } from "../lib/stores/env";
 
-const INSTALL_COMMANDS = [
-  { label: "Debian / Ubuntu", cmd: "sudo apt install -y ffmpeg pulseaudio" },
-  { label: "Fedora", cmd: "sudo dnf install -y ffmpeg pulseaudio" },
-  { label: "Arch", cmd: "sudo pacman -S --needed ffmpeg pulseaudio" },
-];
+function setupHint(env: { platform: string; micAvailable: boolean; accessibilityPermission: boolean | null } | null): string | null {
+  if (!env) return null;
+  if (!env.micAvailable) {
+    if (env.platform === "macos") {
+      return "No microphone is available — allow microphone access in System Settings → Privacy & Security → Microphone.";
+    }
+    if (env.platform === "windows") {
+      return "No microphone is available — check that a microphone is connected and enabled in Sound settings.";
+    }
+    return "No microphone is available — check that a microphone is connected and PulseAudio or PipeWire is running.";
+  }
+  return null;
+}
 
 function dirname(path: string): string {
   const index = path.lastIndexOf("/");
@@ -148,14 +155,8 @@ export function RecordPage() {
     }
   };
 
-  const missing: string[] = [];
-  if (env) {
-    if (!env.ffmpeg) missing.push("ffmpeg");
-    if (!env.ffprobe) missing.push("ffprobe");
-    if (!env.pulseInput) missing.push("PulseAudio input device");
-  }
-  const showSetupCard = env !== null && missing.length > 0;
-  const ffmpegMissing = env !== null && !env.ffmpeg;
+  const hint = setupHint(env);
+  const showSetupCard = hint !== null;
 
   const shortcutMissing = shortcuts ? !shortcuts.voiceNote.combo : false;
   const showGettingStarted = shortcutMissing || modelsReady === false;
@@ -201,44 +202,15 @@ export function RecordPage() {
               <TriangleAlert size={20} strokeWidth={1.75} className="mt-0.5 shrink-0 text-warn" />
               <div className="min-w-0 flex-1">
                 <p className="text-[15px] font-medium text-text">Audio setup incomplete</p>
-                <p className="mt-1 text-[13px] text-text-2">
-                  Missing: {missing.join(", ")}. Recording needs ffmpeg, ffprobe and a
-                  PulseAudio input on the PATH. Install for your distro:
-                </p>
+                <p className="mt-1 text-[13px] text-text-2">{hint}</p>
               </div>
-            </div>
-            <div className="mt-3 flex flex-col gap-1.5">
-              {INSTALL_COMMANDS.map((family) => (
-                <div
-                  key={family.label}
-                  className="flex items-center gap-2 rounded-md border border-border bg-surface px-3 py-2"
-                >
-                  <span className="w-[120px] shrink-0 text-xs text-text-3">{family.label}</span>
-                  <code className="min-w-0 flex-1 truncate font-mono text-xs text-text">
-                    {family.cmd}
-                  </code>
-                  <IconButton
-                    label={`Copy ${family.label} command`}
-                    onClick={() => {
-                      void copyTextToClipboard(family.cmd).then((ok) => {
-                        if (ok) toast("success", "Command copied");
-                        else toast("error", "Could not copy the command");
-                      });
-                    }}
-                  >
-                    <FolderInput size={16} strokeWidth={1.75} />
-                  </IconButton>
-                </div>
-              ))}
             </div>
           </SectionCard>
         )}
 
-        {!ffmpegMissing && (
-          <div className="flex justify-center py-4">
-            <RecordingButton onStopped={handleStopped} />
-          </div>
-        )}
+        <div className="flex justify-center py-4">
+          <RecordingButton onStopped={handleStopped} />
+        </div>
 
         <SectionCard title="Output">
           <div className="flex items-center justify-between gap-4">

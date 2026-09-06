@@ -36,6 +36,7 @@ into a focused, single-purpose product.
 | [10-module-animations.md](10-module-animations.md) | Indicator animation gallery + selection | M5 |
 | [11-state-and-settings.md](11-state-and-settings.md) | Single-authority settings + cross-window sync | M0 |
 | [12-roadmap.md](12-roadmap.md) | Milestones, testing, risks, definition of done | — |
+| [13-cross-platform.md](13-cross-platform.md) | macOS + Windows port (pure-Rust audio, per-OS paste) | M6 |
 
 ## Build order
 

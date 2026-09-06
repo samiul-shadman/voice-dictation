@@ -1,11 +1,11 @@
 use serde::Serialize;
 use std::path::Path;
-use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter};
 
+use crate::audiodecode;
 use crate::engines::parakeet_engine;
 use crate::models::{self, ModelPaths};
 use crate::transcripts;
@@ -136,64 +136,7 @@ fn with_engine<T>(
 }
 
 fn load_pcm16k_mono(input: &Path) -> Result<(Vec<f32>, u64), String> {
-    let now_ms = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis())
-        .unwrap_or(0);
-    let temp = std::env::temp_dir().join(format!(
-        "voice-dictation-{}-{}.wav",
-        std::process::id(),
-        now_ms
-    ));
-    let remove_temp = || {
-        let _ = std::fs::remove_file(&temp);
-    };
-    let output = Command::new("ffmpeg")
-        .arg("-y")
-        .arg("-i")
-        .arg(input)
-        .args(["-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le"])
-        .arg(&temp)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .output();
-    let output = match output {
-        Ok(output) => output,
-        Err(e) => {
-            remove_temp();
-            return Err(format!("ffmpeg could not be started: {e}"));
-        }
-    };
-    if !output.status.success() {
-        remove_temp();
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let snippet: String = stderr.lines().rev().take(3).collect::<Vec<_>>().join(" ");
-        return Err(format!(
-            "ffmpeg failed to convert {}: {}",
-            input.display(),
-            snippet
-        ));
-    }
-    let result = decode_pcm16k_mono(&temp);
-    remove_temp();
-    result
-}
-
-fn decode_pcm16k_mono(temp: &Path) -> Result<(Vec<f32>, u64), String> {
-    let mut reader = hound::WavReader::open(temp)
-        .map_err(|e| format!("could not open the converted audio: {e}"))?;
-    let spec = reader.spec();
-    if spec.channels != 1 || spec.sample_rate != 16_000 {
-        return Err("ffmpeg produced an unexpected wav format (expected 16 kHz mono)".to_string());
-    }
-    let duration_ms = reader.duration() as u64 * 1000 / 16_000;
-    let samples: Vec<f32> = reader
-        .samples::<i16>()
-        .map(|s| s.map(|v| v as f32 / 32768.0))
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| format!("could not decode the converted audio: {e}"))?;
-    Ok((samples, duration_ms))
+    audiodecode::decode_pcm16k_mono(input)
 }
 
 fn spawn_progress_watcher(

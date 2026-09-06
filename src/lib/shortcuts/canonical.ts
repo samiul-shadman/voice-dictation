@@ -1,5 +1,6 @@
 export type ActionId = "voiceNote" | "record";
 export type Trigger = "hold" | "toggle";
+export type UiPlatform = "macos" | "windows" | "linux" | "other";
 
 const MODIFIER_ORDER = ["ctrl", "alt", "shift", "meta"] as const;
 type Modifier = (typeof MODIFIER_ORDER)[number];
@@ -17,7 +18,23 @@ const MODIFIER_ALIASES: Record<string, Modifier> = {
   command: "meta",
   super: "meta",
   win: "meta",
+  "⌃": "ctrl",
+  "⌥": "alt",
+  "⇧": "shift",
+  "⌘": "meta",
 };
+
+export function detectPlatform(): UiPlatform {
+  const nav: Navigator | undefined = typeof navigator === "undefined" ? undefined : navigator;
+  const navLike = nav as (Navigator & { userAgentData?: { platform?: string } }) | undefined;
+  const haystack = `${navLike?.userAgentData?.platform ?? ""} ${navLike?.platform ?? ""} ${
+    navLike?.userAgent ?? ""
+  }`.toLowerCase();
+  if (haystack.includes("mac")) return "macos";
+  if (haystack.includes("win")) return "windows";
+  if (haystack.includes("linux") || haystack.includes("x11")) return "linux";
+  return "other";
+}
 
 const KEY_ALIASES: Record<string, string> = {
   " ": "space",
@@ -159,7 +176,7 @@ function keyToAcceleratorPart(key: string): string {
   return key.charAt(0).toUpperCase() + key.slice(1);
 }
 
-export function toAccelerator(canon: string): string {
+export function toAccelerator(canon: string, platform: UiPlatform = detectPlatform()): string {
   const parts = canon.split("+").filter((p) => p.length > 0);
   if (parts.length === 0) return "";
   const key = parts[parts.length - 1];
@@ -172,7 +189,7 @@ export function toAccelerator(canon: string): string {
       case "shift":
         return "Shift";
       case "meta":
-        return "Super";
+        return platform === "macos" ? "Meta" : "Super";
       default:
         return m;
     }
@@ -180,12 +197,32 @@ export function toAccelerator(canon: string): string {
   return [...modifiers, keyToAcceleratorPart(key)].join("+");
 }
 
-const HUMAN_MODIFIERS: Record<Modifier, string> = {
+const HUMAN_MODIFIERS_LINUX: Record<Modifier, string> = {
   ctrl: "Ctrl",
   alt: "Alt",
   shift: "Shift",
   meta: "Super",
 };
+
+const HUMAN_MODIFIERS_MACOS: Record<Modifier, string> = {
+  ctrl: "⌃",
+  alt: "⌥",
+  shift: "⇧",
+  meta: "⌘",
+};
+
+const HUMAN_MODIFIERS_WINDOWS: Record<Modifier, string> = {
+  ctrl: "Ctrl",
+  alt: "Alt",
+  shift: "Shift",
+  meta: "Win",
+};
+
+function humanModifiers(platform: UiPlatform): Record<Modifier, string> {
+  if (platform === "macos") return HUMAN_MODIFIERS_MACOS;
+  if (platform === "windows") return HUMAN_MODIFIERS_WINDOWS;
+  return HUMAN_MODIFIERS_LINUX;
+}
 
 const HUMAN_KEYS: Record<string, string> = {
   space: "Space",
@@ -217,13 +254,13 @@ function humanKey(key: string): string {
   return key.charAt(0).toUpperCase() + key.slice(1);
 }
 
-export function humanize(canon: string): string {
+export function humanize(canon: string, platform: UiPlatform = detectPlatform()): string {
   const parts = canon.split("+").filter((p) => p.length > 0);
   if (parts.length === 0) return "";
   const key = parts[parts.length - 1];
   const modifiers = parts.slice(0, -1).map((m) => {
     const modifier = MODIFIER_ALIASES[m];
-    return modifier ? HUMAN_MODIFIERS[modifier] : humanKey(m);
+    return modifier ? humanModifiers(platform)[modifier] : humanKey(m);
   });
   return [...modifiers, humanKey(key)].join(" + ");
 }

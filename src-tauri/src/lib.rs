@@ -1,3 +1,4 @@
+mod audiodecode;
 mod downloader;
 mod engines;
 mod models;

@@ -1,5 +1,4 @@
 use serde::Serialize;
-use std::process::{Command, Output, Stdio};
 use std::sync::{mpsc, Mutex};
 use std::time::Duration;
 use tauri::{AppHandle, Manager};
@@ -7,25 +6,11 @@ use tauri::{AppHandle, Manager};
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EnvInfo {
-    pub ffmpeg: bool,
-    pub ffprobe: bool,
-    pub libmp3lame: bool,
-    pub pulse_input: bool,
+    pub platform: String,
+    pub mic_available: bool,
+    pub accessibility_permission: Option<bool>,
     pub session_type: String,
-    pub wtype: bool,
-}
-
-impl Default for EnvInfo {
-    fn default() -> Self {
-        Self {
-            ffmpeg: false,
-            ffprobe: false,
-            libmp3lame: false,
-            pulse_input: false,
-            session_type: "other".to_string(),
-            wtype: false,
-        }
-    }
+    pub wtype: Option<bool>,
 }
 
 pub struct EnvState(Mutex<EnvInfo>);
@@ -35,11 +20,16 @@ pub fn detect_and_cache(app: &AppHandle) {
     app.manage(EnvState(Mutex::new(info)));
 }
 
-#[allow(dead_code)]
 pub fn cached_env(app: &AppHandle) -> EnvInfo {
     match app.try_state::<EnvState>() {
         Some(state) => state.0.lock().expect("env state lock poisoned").clone(),
-        None => EnvInfo::default(),
+        None => EnvInfo {
+            platform: std::env::consts::OS.to_string(),
+            mic_available: false,
+            accessibility_permission: None,
+            session_type: "other".to_string(),
+            wtype: None,
+        },
     }
 }
 
@@ -49,79 +39,87 @@ pub fn detect_environment(app: AppHandle) -> EnvInfo {
 }
 
 pub fn detect() -> EnvInfo {
-    let ffmpeg_output = run_with_timeout(version_command("ffmpeg"), Duration::from_secs(5));
-    let ffmpeg = ffmpeg_output.as_ref().is_some_and(|o| o.status.success());
-    let ffprobe = run_with_timeout(version_command("ffprobe"), Duration::from_secs(5))
-        .is_some_and(|o| o.status.success());
-    let libmp3lame = ffmpeg
-        && run_with_timeout(encoders_command(), Duration::from_secs(5)).is_some_and(|o| {
-            o.status.success() && String::from_utf8_lossy(&o.stdout).contains("libmp3lame")
-        });
-    let pulse_input = ffmpeg && check_pulse_input();
-    let wtype = run_with_timeout(wtype_command(), Duration::from_secs(5))
-        .is_some_and(|o| o.status.success());
     EnvInfo {
-        ffmpeg,
-        ffprobe,
-        libmp3lame,
-        pulse_input,
+        platform: std::env::consts::OS.to_string(),
+        mic_available: mic_available(),
+        accessibility_permission: accessibility_permission(),
         session_type: detect_session_type(),
-        wtype,
+        wtype: wtype_available(),
     }
 }
 
-fn version_command(binary: &str) -> Command {
-    let mut command = Command::new(binary);
-    command.arg("-version");
-    command
+fn mic_available() -> bool {
+    use cpal::traits::HostTrait;
+    cpal::default_host().default_input_device().is_some()
 }
 
-fn encoders_command() -> Command {
-    let mut command = Command::new("ffmpeg");
-    command.arg("-hide_banner").arg("-encoders");
-    command
+#[cfg(target_os = "macos")]
+fn accessibility_permission() -> Option<bool> {
+    Some(unsafe { ax_is_process_trusted() != 0 })
 }
 
-fn wtype_command() -> Command {
-    let mut command = Command::new("wtype");
+#[cfg(target_os = "macos")]
+#[link(name = "ApplicationServices", kind = "framework")]
+extern "C" {
+    fn AXIsProcessTrusted() -> u8;
+}
+
+#[cfg(not(target_os = "macos"))]
+fn accessibility_permission() -> Option<bool> {
+    None
+}
+
+#[cfg(target_os = "linux")]
+fn wtype_available() -> Option<bool> {
+    Some(
+        run_with_timeout(wtype_command(), Duration::from_secs(5))
+            .is_some_and(|o| o.status.success()),
+    )
+}
+
+#[cfg(not(target_os = "linux"))]
+fn wtype_available() -> Option<bool> {
+    None
+}
+
+#[cfg(target_os = "linux")]
+fn wtype_command() -> std::process::Command {
+    let mut command = std::process::Command::new("wtype");
     command.arg("--help");
     command
 }
 
-fn check_pulse_input() -> bool {
-    let mut command = Command::new("ffmpeg");
-    command.args(["-hide_banner", "-f", "pulse", "-i", "default", "-t", "0.2", "-f", "null", "-"]);
-    match run_with_timeout(command, Duration::from_secs(5)) {
-        Some(output) => {
-            if output.status.success() {
-                return true;
-            }
-            let text = format!(
-                "{}{}",
-                String::from_utf8_lossy(&output.stdout),
-                String::from_utf8_lossy(&output.stderr)
-            );
-            text.contains("Output")
-        }
-        None => false,
-    }
-}
-
 fn detect_session_type() -> String {
-    if std::env::var("XDG_SESSION_TYPE").map(|v| v == "x11").unwrap_or(false) {
-        return "x11".to_string();
-    }
-    if std::env::var("WAYLAND_DISPLAY").is_ok() {
-        let desktop = std::env::var("XDG_CURRENT_DESKTOP").unwrap_or_default();
-        if desktop.to_lowercase().contains("gnome") {
-            return "wayland-gnome".to_string();
+    #[cfg(target_os = "linux")]
+    {
+        if std::env::var("XDG_SESSION_TYPE")
+            .map(|v| v == "x11")
+            .unwrap_or(false)
+        {
+            return "x11".to_string();
         }
-        return "wayland-wlroots".to_string();
+        if std::env::var("WAYLAND_DISPLAY").is_ok() {
+            let desktop = std::env::var("XDG_CURRENT_DESKTOP").unwrap_or_default();
+            if desktop.to_lowercase().contains("gnome") {
+                return "wayland-gnome".to_string();
+            }
+            return "wayland-wlroots".to_string();
+        }
+        "other".to_string()
     }
-    "other".to_string()
+    #[cfg(not(target_os = "linux"))]
+    {
+        "native".to_string()
+    }
 }
 
-fn run_with_timeout(mut command: Command, timeout: Duration) -> Option<Output> {
+#[cfg(target_os = "linux")]
+fn run_with_timeout(
+    mut command: std::process::Command,
+    timeout: Duration,
+) -> Option<std::process::Output> {
+    use std::process::Stdio;
+
     command
         .stdin(Stdio::null())
         .stdout(Stdio::piped())

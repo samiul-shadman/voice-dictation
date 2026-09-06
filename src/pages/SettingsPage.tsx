@@ -19,7 +19,7 @@ import type { BadgeKind } from "../components/ui/Badge";
 import type { RadioCardOption } from "../components/ui/RadioCardGroup";
 import { useAudioPrefs, usePasteMode, useSettings } from "../lib/stores/settings";
 import type { PasteMode } from "../lib/stores/settings";
-import { useEnvInfo } from "../lib/stores/env";
+import { useEnvInfo, isLinux, isMac } from "../lib/stores/env";
 import type { EnvInfo, SessionType } from "../lib/stores/env";
 
 type PkgManager = "apt" | "dnf" | "pacman";
@@ -30,19 +30,13 @@ const PKG_MANAGER_OPTIONS = [
   { value: "pacman", label: "pacman" },
 ] as const;
 
-const FFMPEG_INSTALL: Record<PkgManager, string> = {
-  apt: "sudo apt install ffmpeg pulseaudio",
-  dnf: "sudo dnf install ffmpeg pulseaudio",
-  pacman: "sudo pacman -S ffmpeg pulseaudio",
-};
-
 const WTYPE_INSTALL: Record<PkgManager, string> = {
   apt: "sudo apt install wtype",
   dnf: "sudo dnf install wtype",
   pacman: "sudo pacman -S wtype",
 };
 
-const PASTE_MODE_OPTIONS: readonly RadioCardOption<PasteMode>[] = [
+const LINUX_PASTE_MODE_OPTIONS: readonly RadioCardOption<PasteMode>[] = [
   {
     value: "auto",
     label: "Auto",
@@ -61,6 +55,55 @@ const PASTE_MODE_OPTIONS: readonly RadioCardOption<PasteMode>[] = [
   },
   { value: "clipboard_only", label: "Clipboard only", hint: "Copy only — no keystrokes" },
 ];
+
+const MACOS_PASTE_MODE_OPTIONS: readonly RadioCardOption<PasteMode>[] = [
+  {
+    value: "auto",
+    label: "Auto",
+    hint: "Send ⌘V to the focused app",
+  },
+  { value: "ctrl_v", label: "⌘V", hint: "Always send ⌘V" },
+  { value: "clipboard_only", label: "Clipboard only", hint: "Copy only — no keystrokes" },
+];
+
+const WINDOWS_PASTE_MODE_OPTIONS: readonly RadioCardOption<PasteMode>[] = [
+  {
+    value: "auto",
+    label: "Auto",
+    hint: "Send Ctrl+V to the focused app",
+  },
+  { value: "ctrl_v", label: "Ctrl+V", hint: "Always send Ctrl+V" },
+  {
+    value: "ctrl_shift_v",
+    label: "Ctrl+Shift+V",
+    hint: "Always send Ctrl+Shift+V (some terminals)",
+  },
+  {
+    value: "shift_insert",
+    label: "Shift+Insert",
+    hint: "Send Shift+Insert",
+  },
+  { value: "clipboard_only", label: "Clipboard only", hint: "Copy only — no keystrokes" },
+];
+
+function pasteModeOptions(env: EnvInfo | null): readonly RadioCardOption<PasteMode>[] {
+  if (isMac(env)) return MACOS_PASTE_MODE_OPTIONS;
+  if (env?.platform === "windows") return WINDOWS_PASTE_MODE_OPTIONS;
+  return LINUX_PASTE_MODE_OPTIONS;
+}
+
+function platformBadge(platform: string): DirectoryBadge {
+  switch (platform) {
+    case "macos":
+      return { text: "macOS", kind: "success" };
+    case "windows":
+      return { text: "Windows", kind: "success" };
+    case "linux":
+      return { text: "Linux", kind: "success" };
+    default:
+      return { text: platform, kind: "neutral" };
+  }
+}
 
 interface EnvRowData {
   label: string;
@@ -102,6 +145,8 @@ function sessionBadge(sessionType: SessionType): DirectoryBadge {
   switch (sessionType) {
     case "x11":
       return { text: "X11", kind: "success" };
+    case "native":
+      return { text: "Native", kind: "success" };
     case "wayland-wlroots":
       return { text: "Wayland (wlroots)", kind: "neutral" };
     case "wayland-gnome":
@@ -147,6 +192,23 @@ function PasteSessionBanner({
     "flex items-start gap-2 rounded-lg border p-3 text-[13px] leading-relaxed";
   const amber = "border-warn/40 bg-warn-soft text-text";
   const neutral = "border-border bg-surface-2 text-text-2";
+  if (isMac(env)) {
+    return (
+      <div className={`${base} ${neutral}`}>
+        <span>
+          macOS: transcripts paste with ⌘V. If pasting does nothing, grant the app
+          Accessibility permission in System Settings → Privacy & Security.
+        </span>
+      </div>
+    );
+  }
+  if (env.platform === "windows") {
+    return (
+      <div className={`${base} ${neutral}`}>
+        <span>Windows: transcripts paste with Ctrl+V into the focused app.</span>
+      </div>
+    );
+  }
   if (env.sessionType === "x11") {
     return (
       <div className={`${base} ${neutral}`}>
@@ -162,7 +224,7 @@ function PasteSessionBanner({
           Wayland: paste uses wtype — install it for best results. Terminal
           auto-detection is unavailable on Wayland; pick Ctrl+Shift+V if you dictate
           into terminals.
-          {!env.wtype && (
+          {env.wtype === false && (
             <>
               {" "}
               Install it with{" "}
@@ -402,41 +464,40 @@ export function SettingsPage() {
     }
   }
 
-  const ffmpegInstall = FFMPEG_INSTALL[pkgManager];
   const wtypeInstall = WTYPE_INSTALL[pkgManager];
   const envRows: EnvRowData[] = env
     ? [
+        { label: "Platform", ...platformBadge(env.platform) },
         {
-          label: "ffmpeg",
-          kind: env.ffmpeg ? "success" : "warn",
-          text: env.ffmpeg ? "installed" : "not found",
-          command: env.ffmpeg ? undefined : ffmpegInstall,
+          label: "Microphone",
+          kind: env.micAvailable ? "success" : "warn",
+          text: env.micAvailable ? "available" : "no input device",
         },
-        {
-          label: "ffprobe",
-          kind: env.ffprobe ? "success" : "warn",
-          text: env.ffprobe ? "installed" : "not found",
-          command: env.ffprobe ? undefined : ffmpegInstall,
-        },
-        {
-          label: "MP3 encoder (libmp3lame)",
-          kind: env.libmp3lame ? "success" : "warn",
-          text: env.libmp3lame ? "ready" : "missing",
-          command: env.libmp3lame ? undefined : ffmpegInstall,
-        },
-        {
-          label: "PulseAudio input",
-          kind: env.pulseInput ? "success" : "warn",
-          text: env.pulseInput ? "working" : "no input",
-          command: env.pulseInput ? undefined : ffmpegInstall,
-        },
-        { label: "Session type", ...sessionBadge(env.sessionType) },
-        {
-          label: "wtype (Wayland keystrokes)",
-          kind: env.wtype ? "success" : "warn",
-          text: env.wtype ? "installed" : "not found",
-          command: env.wtype ? undefined : wtypeInstall,
-        },
+        ...(isMac(env)
+          ? [
+              {
+                label: "Paste permission (Accessibility)",
+                kind: env.accessibilityPermission === true ? ("success" as BadgeKind) : ("warn" as BadgeKind),
+                text:
+                  env.accessibilityPermission === true
+                    ? "granted"
+                    : env.accessibilityPermission === false
+                      ? "not granted"
+                      : "checking…",
+              },
+            ]
+          : []),
+        ...(isLinux(env)
+          ? [
+              { label: "Session type", ...sessionBadge(env.sessionType) },
+              {
+                label: "wtype (Wayland keystrokes)",
+                kind: env.wtype ? "success" : "warn",
+                text: env.wtype ? "installed" : "not found",
+                command: env.wtype ? undefined : wtypeInstall,
+              } as EnvRowData,
+            ]
+          : []),
       ]
     : [];
 
@@ -466,18 +527,20 @@ export function SettingsPage() {
 
         <SectionCard
           title="Environment"
-          description="Recording dependencies and desktop session, detected at startup."
+          description="Microphone access and desktop session, detected at startup."
         >
-          <div className="mb-2 flex items-center justify-between gap-3">
-            <span className="text-xs text-text-3">Install commands for</span>
-            <SegmentedControl
-              options={PKG_MANAGER_OPTIONS}
-              value={pkgManager}
-              onChange={setPkgManager}
-              ariaLabel="Package manager"
-              className="w-[210px]"
-            />
-          </div>
+          {isLinux(env) && (
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <span className="text-xs text-text-3">Install commands for</span>
+              <SegmentedControl
+                options={PKG_MANAGER_OPTIONS}
+                value={pkgManager}
+                onChange={setPkgManager}
+                ariaLabel="Package manager"
+                className="w-[210px]"
+              />
+            </div>
+          )}
           {env ? (
             <div className="flex flex-col divide-y divide-border">
               {envRows.map((row) => (
@@ -496,7 +559,7 @@ export function SettingsPage() {
           <div className="flex flex-col gap-3">
             <PasteSessionBanner env={env} wtypeCommand={wtypeInstall} />
             <RadioCardGroup
-              options={PASTE_MODE_OPTIONS}
+              options={pasteModeOptions(env)}
               value={activePasteMode}
               onChange={(mode) => void handlePasteModeChange(mode)}
               ariaLabel="Paste mode"
@@ -554,7 +617,7 @@ export function SettingsPage() {
         </SectionCard>
 
         <p className="text-xs text-text-3">
-          Voice Dictation — local, keyboard-first dictation for Linux
+          Voice Dictation — local, keyboard-first dictation
         </p>
       </div>
     </>
