@@ -120,7 +120,7 @@ pub(crate) fn resolve_combo(
                     {
                         ComboPlan::CtrlV
                     }
-                } else if is_terminal == Some(true) {
+                } else if cfg!(target_os = "linux") && is_terminal == Some(true) {
                     ComboPlan::CtrlShiftV
                 } else {
                     ComboPlan::CtrlV
@@ -167,6 +167,7 @@ pub fn paste_transcript(app: &AppHandle, text: &str) -> Result<(), String> {
     thread::sleep(PASTE_DELAY);
 
     let session = sysinfo::cached_env(app).session_type;
+    #[cfg(target_os = "linux")]
     let wayland = session_is_wayland(&session);
 
     #[cfg(target_os = "linux")]

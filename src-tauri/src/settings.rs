@@ -454,7 +454,8 @@ mod tests {
         assert!(validate_paste_mode("magic").is_err());
         assert!(validate_audio_dir("relative/path").is_err());
         assert!(validate_audio_dir("").is_err());
-        assert!(validate_audio_dir("/absolute/path").is_ok());
+        let absolute = if cfg!(windows) { r"C:\absolute\path" } else { "/absolute/path" };
+        assert!(validate_audio_dir(absolute).is_ok());
     }
 
     #[test]

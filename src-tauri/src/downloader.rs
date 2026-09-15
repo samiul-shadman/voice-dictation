@@ -98,11 +98,13 @@ fn errors() -> &'static Mutex<HashMap<String, String>> {
 fn client() -> &'static reqwest::blocking::Client {
     static CLIENT: OnceLock<reqwest::blocking::Client> = OnceLock::new();
     CLIENT.get_or_init(|| {
-        reqwest::blocking::Client::builder()
+        let builder = reqwest::blocking::Client::builder()
             .user_agent(concat!("voice-dictation/", env!("CARGO_PKG_VERSION")))
             .connect_timeout(CONNECT_TIMEOUT)
-            .tcp_user_timeout(READ_IDLE_TIMEOUT)
-            .tcp_keepalive(READ_IDLE_TIMEOUT)
+            .tcp_keepalive(READ_IDLE_TIMEOUT);
+        #[cfg(target_os = "linux")]
+        let builder = builder.tcp_user_timeout(READ_IDLE_TIMEOUT);
+        builder
             .build()
             .unwrap_or_else(|_| reqwest::blocking::Client::new())
     })

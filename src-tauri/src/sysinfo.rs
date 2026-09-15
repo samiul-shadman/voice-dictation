@@ -1,5 +1,8 @@
 use serde::Serialize;
-use std::sync::{mpsc, Mutex};
+#[cfg(target_os = "linux")]
+use std::sync::mpsc;
+use std::sync::Mutex;
+#[cfg(target_os = "linux")]
 use std::time::Duration;
 use tauri::{AppHandle, Manager};
 

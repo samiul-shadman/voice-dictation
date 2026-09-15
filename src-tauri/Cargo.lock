@@ -2540,6 +2540,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sherpa-rs",
+ "shine-rs",
  "symphonia",
  "tauri",
  "tauri-build",
@@ -4206,6 +4207,18 @@ dependencies = [
  "sha2",
  "tar",
  "ureq",
+]
+
+[[package]]
+name = "shine-rs"
+version = "0.1.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6acbf8c034dfc2fe7b6e98c97712466381ce315b24dac480c7cbaf4a21ccdc84"
+dependencies = [
+ "hound",
+ "lazy_static",
+ "log",
+ "thiserror 1.0.69",
 ]
 
 [[package]]

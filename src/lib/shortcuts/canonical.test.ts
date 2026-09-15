@@ -104,7 +104,7 @@ describe("toAccelerator", () => {
 describe("humanize", () => {
   it("renders display form", () => {
     expect(humanize("ctrl+shift+a")).toBe("Ctrl + Shift + A");
-    expect(humanize("meta+space")).toBe("Super + Space");
+    expect(humanize("meta+space", "linux")).toBe("Super + Space");
     expect(humanize("alt+up")).toBe("Alt + Up");
     expect(humanize("ctrl+pagedown")).toBe("Ctrl + Page Down");
     expect(humanize("f5")).toBe("F5");

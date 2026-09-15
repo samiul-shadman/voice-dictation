@@ -9,9 +9,12 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager};
 
-use cpal::traits::{DeviceTrait, HostTrait};
+use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{FromSample, Sample as CpalSample, SizedSample};
+#[cfg(not(target_os = "windows"))]
 use mp3lame_encoder::{Bitrate, FlushNoGap, MonoPcm as Mp3MonoPcm, Quality};
+#[cfg(target_os = "windows")]
+use shine_rs::{Mp3Encoder, Mp3EncoderConfig, StereoMode};
 
 const LEVEL_THROTTLE_MS: u64 = 50;
 const CAPTURE_TIMEOUT: Option<Duration> = Some(Duration::from_secs(2));
@@ -116,6 +119,12 @@ pub fn start_recording(app: tauri::AppHandle, format: Option<String>) -> Result<
         app.clone(),
         device_error.clone(),
     )?;
+    if let Err(e) = stream.play() {
+        drop(stream);
+        drop(chunk_tx);
+        let _ = fs::remove_file(&path);
+        return Err(format!("could not start the microphone stream: {e}"));
+    }
 
     let writer_path = path.clone();
     let writer_format = format.clone();
@@ -454,6 +463,55 @@ fn write_wav(path: &Path, sample_rate: u32, rx: &mpsc::Receiver<Vec<f32>>) -> Re
 }
 
 fn write_mp3(path: &Path, sample_rate: u32, rx: &mpsc::Receiver<Vec<f32>>) -> Result<u64, String> {
+    #[cfg(target_os = "windows")]
+    {
+        write_mp3_shine(path, sample_rate, rx)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        write_mp3_lame(path, sample_rate, rx)
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn write_mp3_shine(
+    path: &Path,
+    sample_rate: u32,
+    rx: &mpsc::Receiver<Vec<f32>>,
+) -> Result<u64, String> {
+    let config = Mp3EncoderConfig::new()
+        .sample_rate(sample_rate)
+        .bitrate(192)
+        .channels(1)
+        .stereo_mode(StereoMode::Mono);
+    let mut encoder = Mp3Encoder::new(config)
+        .map_err(|e| format!("could not initialize the mp3 encoder: {e}"))?;
+    let file = File::create(path).map_err(|e| format!("could not create recording: {e}"))?;
+    let mut file = BufWriter::new(file);
+    let mut frames = 0u64;
+    for chunk in rx {
+        let pcm: Vec<i16> = chunk.iter().map(|s| f32_to_i16_pcm(*s)).collect();
+        let blocks = encoder
+            .encode_interleaved(&pcm)
+            .map_err(|e| format!("could not encode the recording: {e}"))?;
+        for block in blocks {
+            file.write_all(&block)
+                .map_err(|e| format!("could not write the recording: {e}"))?;
+        }
+        frames += pcm.len() as u64;
+    }
+    let tail = encoder
+        .finish()
+        .map_err(|e| format!("could not finalize the recording: {e}"))?;
+    file.write_all(&tail)
+        .map_err(|e| format!("could not finalize the recording: {e}"))?;
+    file.flush()
+        .map_err(|e| format!("could not finalize the recording: {e}"))?;
+    Ok(frames)
+}
+
+#[cfg(not(target_os = "windows"))]
+fn write_mp3_lame(path: &Path, sample_rate: u32, rx: &mpsc::Receiver<Vec<f32>>) -> Result<u64, String> {
     let mut builder = mp3lame_encoder::Builder::new()
         .ok_or_else(|| "could not initialize the mp3 encoder".to_string())?;
     builder
