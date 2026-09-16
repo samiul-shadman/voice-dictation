@@ -536,6 +536,7 @@ fn write_mp3_lame(path: &Path, sample_rate: u32, rx: &mpsc::Receiver<Vec<f32>>) 
     for chunk in rx {
         let pcm: Vec<i16> = chunk.iter().map(|s| f32_to_i16_pcm(*s)).collect();
         encoded.clear();
+        encoded.reserve(mp3lame_encoder::max_required_buffer_size(pcm.len()));
         encoder
             .encode_to_vec(Mp3MonoPcm(&pcm), &mut encoded)
             .map_err(|e| format!("could not encode the recording: {e}"))?;
@@ -544,6 +545,7 @@ fn write_mp3_lame(path: &Path, sample_rate: u32, rx: &mpsc::Receiver<Vec<f32>>) 
         frames += pcm.len() as u64;
     }
     encoded.clear();
+    encoded.reserve(mp3lame_encoder::max_required_buffer_size(0));
     encoder
         .flush_to_vec::<FlushNoGap>(&mut encoded)
         .map_err(|e| format!("could not finalize the recording: {e}"))?;
@@ -837,5 +839,20 @@ mod tests {
         assert_eq!(samples[0], 0);
         assert_eq!(samples[1], f32_to_i16_pcm(0.5));
         assert_eq!(samples[2], f32_to_i16_pcm(-0.5));
+    }
+
+    #[test]
+    fn mp3_writer_encodes_chunks_without_a_zero_capacity_buffer() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("rec.mp3");
+        let (tx, rx) = mpsc::channel::<Vec<f32>>();
+        for _ in 0..3 {
+            let samples: Vec<f32> = (0..1000).map(|i| (i as f32 / 1000.0) * 0.5).collect();
+            tx.send(samples).expect("send");
+        }
+        drop(tx);
+        let frames = write_mp3(&path, 44_100, &rx).expect("mp3 written");
+        assert_eq!(frames, 3000);
+        assert!(fs::metadata(&path).expect("metadata").len() > 100);
     }
 }
