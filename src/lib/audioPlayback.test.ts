@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  PLAYBACK_SPEEDS,
   claimExclusivePlayback,
+  clampTime,
+  nextSpeed,
   pausePath,
   unregisterPlayback,
 } from "./audioPlayback";
@@ -54,5 +57,39 @@ describe("exclusive playback registry", () => {
     expect(pausePath("/b.mp3")).toBe(true);
     expect(b.pause).toHaveBeenCalledTimes(1);
     expect(pausePath("/missing.mp3")).toBe(false);
+  });
+});
+
+describe("clampTime", () => {
+  it("clamps a seek target into the duration", () => {
+    expect(clampTime(90, 60)).toBe(60);
+  });
+
+  it("keeps in-range seek targets unchanged", () => {
+    expect(clampTime(12.5, 60)).toBe(12.5);
+  });
+
+  it("returns zero for negative, NaN or infinite input", () => {
+    expect(clampTime(-1, 60)).toBe(0);
+    expect(clampTime(Number.NaN, 60)).toBe(0);
+    expect(clampTime(Number.POSITIVE_INFINITY, 60)).toBe(0);
+  });
+
+  it("returns zero when the duration is unknown or invalid", () => {
+    expect(clampTime(5, 0)).toBe(0);
+    expect(clampTime(5, Number.NaN)).toBe(0);
+  });
+});
+
+describe("nextSpeed", () => {
+  it("cycles through the playback speeds and wraps around", () => {
+    expect(nextSpeed(1)).toBe(1.25);
+    expect(nextSpeed(1.25)).toBe(1.5);
+    expect(nextSpeed(1.5)).toBe(2);
+    expect(nextSpeed(2)).toBe(1);
+  });
+
+  it("falls back to the first speed for unknown values", () => {
+    expect(nextSpeed(3)).toBe(PLAYBACK_SPEEDS[0]);
   });
 });

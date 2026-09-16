@@ -16,6 +16,20 @@ function mimeForPath(path: string): string {
   return "application/octet-stream";
 }
 
+export const PLAYBACK_SPEEDS = [1, 1.25, 1.5, 2] as const;
+
+export function clampTime(seconds: number, duration: number): number {
+  if (!Number.isFinite(seconds) || seconds < 0) return 0;
+  if (!Number.isFinite(duration) || duration <= 0) return 0;
+  return Math.min(seconds, duration);
+}
+
+export function nextSpeed(current: number): number {
+  const index = PLAYBACK_SPEEDS.indexOf(current as (typeof PLAYBACK_SPEEDS)[number]);
+  if (index === -1) return PLAYBACK_SPEEDS[0];
+  return PLAYBACK_SPEEDS[(index + 1) % PLAYBACK_SPEEDS.length];
+}
+
 export function claimExclusivePlayback(el: AudioElementLike, path?: string): void {
   for (const other of playing) {
     if (other !== el && !other.paused) other.pause();

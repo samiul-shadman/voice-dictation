@@ -197,7 +197,7 @@ export function LibraryPage() {
             const rowBody = (
               <>
                 <span
-                  className={`min-w-0 truncate text-[13px] font-medium ${
+                  className={`block min-w-0 truncate text-[13px] font-medium ${
                     hasTranscript ? "text-text" : "text-text-2"
                   }`}
                 >
@@ -214,19 +214,20 @@ export function LibraryPage() {
             return (
               <li key={meta.path}>
                 <div className="flex items-center gap-3 px-3 py-2.5">
-                  <AudioPlayer path={meta.path} meta={meta} format={meta.format} />
-                  {hasTranscript ? (
-                    <button
-                      type="button"
-                      onClick={() => setExpanded(isExpanded ? null : meta.path)}
-                      aria-expanded={isExpanded}
-                      className="min-w-0 flex-1 text-left"
-                    >
-                      {rowBody}
-                    </button>
-                  ) : (
-                    <div className="min-w-0 flex-1">{rowBody}</div>
-                  )}
+                  <AudioPlayer path={meta.path} meta={meta} format={meta.format}>
+                    {hasTranscript ? (
+                      <button
+                        type="button"
+                        onClick={() => setExpanded(isExpanded ? null : meta.path)}
+                        aria-expanded={isExpanded}
+                        className="block w-full min-w-0 text-left"
+                      >
+                        {rowBody}
+                      </button>
+                    ) : (
+                      <div className="min-w-0">{rowBody}</div>
+                    )}
+                  </AudioPlayer>
                   {hasTranscript ? (
                     <Badge kind="success" className="shrink-0">
                       Transcript
