@@ -18,6 +18,7 @@ import TranscriptPanel from "../components/feature/TranscriptPanel";
 import { fmtClock, humanRelativeTime, humanSize } from "../lib/format";
 import { forgetAllRecordingUrls, forgetRecordingUrl, pausePath } from "../lib/audioPlayback";
 import {
+  deleteAllRecordings,
   deleteRecording,
   listRecordings,
   useRecording,
@@ -73,6 +74,8 @@ export function LibraryPage() {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<RecordingMeta | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [deleteAllOpen, setDeleteAllOpen] = useState(false);
+  const [deletingAll, setDeletingAll] = useState(false);
   const wasRecording = useRef(false);
   const prevDir = useRef<string | null>(null);
 
@@ -138,6 +141,23 @@ export function LibraryPage() {
   const totalSize = recordings ? recordings.reduce((sum, m) => sum + m.size, 0) : 0;
   const count = recordings?.length ?? 0;
 
+  const confirmDeleteAll = async (): Promise<void> => {
+    setDeletingAll(true);
+    try {
+      forgetAllRecordingUrls();
+      const deleted = await deleteAllRecordings();
+      setDeleteAllOpen(false);
+      setExpanded(null);
+      setDeleteTarget(null);
+      await refresh();
+      toast("success", `Deleted ${deleted} ${deleted === 1 ? "recording" : "recordings"}`);
+    } catch (e) {
+      toast("error", `Could not delete recordings — ${friendly(e)}`);
+    } finally {
+      setDeletingAll(false);
+    }
+  };
+
   return (
     <>
       <PageHeader
@@ -152,14 +172,27 @@ export function LibraryPage() {
           ·
         </span>
         <span className="font-mono tabular-nums">{humanSize(totalSize)}</span>
-        {audioDir && (
-          <span
-            className="ml-auto min-w-0 truncate font-mono text-xs text-text-3"
-            title={audioDir}
-          >
-            {audioDir}
-          </span>
-        )}
+        <div className="ml-auto flex min-w-0 items-center gap-3">
+          {audioDir && (
+            <span
+              className="min-w-0 truncate font-mono text-xs text-text-3"
+              title={audioDir}
+            >
+              {audioDir}
+            </span>
+          )}
+          {count > 0 && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="shrink-0 border-err! text-err! hover:bg-err-soft! hover:text-err!"
+              onClick={() => setDeleteAllOpen(true)}
+            >
+              <Trash2 size={14} strokeWidth={1.75} />
+              Delete all
+            </Button>
+          )}
+        </div>
       </div>
 
       {recordings === null ? (
@@ -271,6 +304,26 @@ export function LibraryPage() {
             </Button>
             <Button variant="danger" loading={deleting} onClick={() => void confirmDelete()}>
               Delete
+            </Button>
+          </>
+        }
+      />
+
+      <Dialog
+        open={deleteAllOpen}
+        onClose={() => {
+          if (!deletingAll) setDeleteAllOpen(false);
+        }}
+        title="Delete all recordings?"
+        description={`Delete all ${count} recordings and their transcripts? This cannot be undone.`}
+        destructive
+        actions={
+          <>
+            <Button variant="ghost" disabled={deletingAll} onClick={() => setDeleteAllOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="danger" loading={deletingAll} onClick={() => void confirmDeleteAll()}>
+              Delete all
             </Button>
           </>
         }

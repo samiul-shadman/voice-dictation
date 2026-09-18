@@ -39,6 +39,7 @@ pub fn run() {
             recorder::recording_state,
             recorder::list_recordings,
             recorder::delete_recording,
+            recorder::delete_all_recordings,
             recorder::read_recording,
             recorder::default_recordings_dir,
             models::list_models,

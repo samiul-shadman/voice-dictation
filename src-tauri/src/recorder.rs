@@ -258,6 +258,39 @@ pub fn delete_recording(app: tauri::AppHandle, path: String) -> Result<(), Strin
 }
 
 #[tauri::command(async)]
+pub fn delete_all_recordings(app: tauri::AppHandle) -> Result<u32, String> {
+    let dir = with_settings(&app, |s| PathBuf::from(s.audio_dir.clone()));
+    let entries = match fs::read_dir(&dir) {
+        Ok(entries) => entries,
+        Err(_) => return Ok(0),
+    };
+    let in_progress = with_inner(&app, |inner| {
+        inner
+            .recording
+            .as_ref()
+            .and_then(|r| r.path.canonicalize().ok())
+    });
+    let mut deleted = 0u32;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_file() || !is_allowed_extension(&path) {
+            continue;
+        }
+        if in_progress
+            .as_ref()
+            .is_some_and(|p| path.canonicalize().ok().as_ref() == Some(p))
+        {
+            continue;
+        }
+        if fs::remove_file(&path).is_ok() {
+            let _ = fs::remove_file(sidecar_path_for(&path));
+            deleted += 1;
+        }
+    }
+    Ok(deleted)
+}
+
+#[tauri::command(async)]
 pub fn read_recording(app: tauri::AppHandle, path: String) -> Result<tauri::ipc::Response, String> {
     let target = PathBuf::from(&path);
     if !is_allowed_extension(&target) {

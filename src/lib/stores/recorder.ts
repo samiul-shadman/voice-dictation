@@ -129,6 +129,10 @@ export async function deleteRecording(path: string): Promise<void> {
   await invoke("delete_recording", { path });
 }
 
+export async function deleteAllRecordings(): Promise<number> {
+  return await invoke<number>("delete_all_recordings");
+}
+
 export async function defaultRecordingsDir(): Promise<string> {
   return await invoke<string>("default_recordings_dir");
 }
