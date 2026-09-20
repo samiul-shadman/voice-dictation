@@ -43,11 +43,6 @@ const ANIM_CSS = `
 }
 @keyframes vd-breathe { 0%, 100% { opacity: 0.55; } 50% { opacity: 1; } }
 @keyframes vd-ecg-sweep { from { stroke-dashoffset: 96; } to { stroke-dashoffset: 0; } }
-@keyframes vd-eq {
-  0%, 100% { transform: scaleY(0.3); }
-  35% { transform: scaleY(0.95); }
-  70% { transform: scaleY(0.55); }
-}
 @keyframes vd-sheen-sweep { from { transform: translateX(-110%); } to { transform: translateX(240%); } }
 @keyframes vd-bar-sheen { from { background-position: -48px 0; } to { background-position: 120px 0; } }
 @keyframes vd-dot-bounce {
@@ -112,12 +107,11 @@ const ANIM_CSS = `
   animation: vd-ecg-sweep 1.7s linear infinite;
 }
 .vd-eq-bar {
+  display: block;
   width: 4px;
-  height: 24px;
   border-radius: 999px;
   background: var(--rec);
-  transform-origin: bottom;
-  animation: vd-eq 0.9s ease-in-out infinite alternate;
+  transform-origin: center;
 }
 /* sweep rotates via transform; @property does not animate in the webview */
 .vd-sonar-sweep {
@@ -240,13 +234,7 @@ const ECG_PATH = "M0 12 H14 L18 4 L24 20 L28 12 H40 L44 7 L48 17 L52 12 H64";
 
 const LEVEL_BARS = [5, 9, 13, 16, 13, 9, 12, 16, 12, 8, 11, 7];
 const WAVE_DELAYS = [0, 130, 260, 390, 260, 130, 0];
-const EQ_BARS = [
-  { dur: "0.72s", delay: "0ms" },
-  { dur: "1.04s", delay: "120ms" },
-  { dur: "0.56s", delay: "60ms" },
-  { dur: "1.18s", delay: "220ms" },
-  { dur: "0.84s", delay: "40ms" },
-];
+const EQ_BARS = [20, 28, 38, 24, 32];
 const CURSOR_SEGMENTS = 8;
 const RING_RADIUS = 11;
 const RING_CIRC = 2 * Math.PI * RING_RADIUS;
@@ -401,19 +389,15 @@ const ecg: RecordingStyleEntry = {
 const equalizer: RecordingStyleEntry = {
   id: "equalizer",
   name: "Equalizer",
-  desc: "Bouncy equalizer bars, overall gain driven by the level.",
+  desc: "Bouncy equalizer bars whose heights follow the mic level.",
   render: ({ elapsed }) => (
     <div className="flex items-center gap-3">
-      <span
-        className="flex h-7 items-end gap-[3px]"
-        style={{ transform: "scaleY(calc(0.3 + var(--voice-level, 0) * 0.7))" }}
-        aria-hidden
-      >
-        {EQ_BARS.map((bar, i) => (
+      <span className="flex h-7 items-center gap-[3px]" aria-hidden>
+        {EQ_BARS.map((mult, i) => (
           <span
             key={i}
             className="vd-eq-bar"
-            style={{ animationDuration: bar.dur, animationDelay: bar.delay }}
+            style={{ height: `min(25px, calc(3px + var(--voice-level, 0) * ${mult}px))` }}
           />
         ))}
       </span>
