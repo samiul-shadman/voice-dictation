@@ -1,19 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { Mic, Square } from "lucide-react";
-import { Button, toast } from "../ui";
+import { Button } from "../ui";
 import {
   cancelRecording,
   toggleRecording,
   useRecording,
 } from "../../lib/stores/recorder";
-import type { RecordingMeta } from "../../lib/stores/recorder";
 import { fmtClock } from "../../lib/format";
 
-export interface RecordingButtonProps {
-  onStopped?: (meta: RecordingMeta) => void;
-}
-
-export default function RecordingButton({ onStopped }: RecordingButtonProps) {
+export default function RecordingButton() {
   const recorder = useRecording();
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [elapsed, setElapsed] = useState(0);
@@ -44,10 +39,9 @@ export default function RecordingButton({ onStopped }: RecordingButtonProps) {
     if (busy || recorder.stopping) return;
     setBusy(true);
     try {
-      const meta = await toggleRecording();
-      if (meta) onStopped?.(meta);
+      await toggleRecording();
     } catch (e) {
-      toast("error", e instanceof Error ? e.message : String(e));
+      console.error("[record] toggle failed", e);
     } finally {
       setBusy(false);
     }

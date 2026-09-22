@@ -91,7 +91,7 @@ export default function TranscriptPanel({ path }: TranscriptPanelProps) {
     try {
       await transcribeFile(path, false);
     } catch (e) {
-      toast("error", readableError(e));
+      console.error("[transcript] re-transcription failed", e);
     }
   };
 

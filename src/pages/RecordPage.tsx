@@ -1,19 +1,16 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
-import { openPath, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { Keyboard, Mic, TriangleAlert } from "lucide-react";
 import { Button, PageHeader, SectionCard, SegmentedControl, toast } from "../components/ui";
 import RecordingButton from "../components/feature/RecordingButton";
-import { humanDuration, humanSize } from "../lib/format";
 import { useLevel } from "../lib/stores/levels";
 import {
   defaultRecordingsDir,
   toggleRecording,
   useRecording,
 } from "../lib/stores/recorder";
-import type { RecordingMeta } from "../lib/stores/recorder";
 import { useAudioPrefs, useSettings, useShortcutConfig } from "../lib/stores/settings";
 import type { AudioFormat } from "../lib/stores/settings";
 import { useEnvInfo } from "../lib/stores/env";
@@ -30,11 +27,6 @@ function setupHint(env: { platform: string; micAvailable: boolean; accessibility
     return "No microphone is available — check that a microphone is connected and PulseAudio or PipeWire is running.";
   }
   return null;
-}
-
-function dirname(path: string): string {
-  const index = path.lastIndexOf("/");
-  return index > 0 ? path.slice(0, index) : "/";
 }
 
 function friendly(e: unknown): string {
@@ -79,22 +71,6 @@ export function RecordPage() {
     return () => cancelAnimationFrame(frame);
   }, [level]);
 
-  const handleStopped = useCallback((meta: RecordingMeta) => {
-    toast(
-      "success",
-      `Saved ${meta.name} · ${humanDuration(meta.durationSecs)} · ${humanSize(meta.size)}`,
-      {
-        action: {
-          label: "Reveal folder",
-          onClick: () => {
-            const dir = dirname(meta.path);
-            void revealItemInDir(meta.path).catch(() => openPath(dir));
-          },
-        },
-      },
-    );
-  }, []);
-
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.code !== "Space" || e.repeat) return;
@@ -115,16 +91,15 @@ export function RecordPage() {
       e.preventDefault();
       void (async () => {
         try {
-          const meta = await toggleRecording();
-          if (meta) handleStopped(meta);
+          await toggleRecording();
         } catch (err) {
-          toast("error", friendly(err));
+          console.error("[record] toggle failed", err);
         }
       })();
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [handleStopped]);
+  }, []);
 
   const setFormat = async (format: AudioFormat): Promise<void> => {
     try {
@@ -209,7 +184,7 @@ export function RecordPage() {
         )}
 
         <div className="flex justify-center py-4">
-          <RecordingButton onStopped={handleStopped} />
+          <RecordingButton />
         </div>
 
         <SectionCard title="Output">

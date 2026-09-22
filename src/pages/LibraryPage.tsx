@@ -47,7 +47,7 @@ function TranscribeCell({ meta }: { meta: RecordingMeta }) {
     try {
       await transcribeFile(meta.path, false);
     } catch (e) {
-      toast("error", friendly(e));
+      console.error("[library] transcription failed", e);
     }
   };
 
@@ -115,7 +115,7 @@ export function LibraryPage() {
   useEffect(
     () =>
       onTranscribeError((payload) => {
-        toast("error", `Transcription failed — ${payload.message}`);
+        console.error("[library] transcription failed —", payload.message);
       }),
     [],
   );

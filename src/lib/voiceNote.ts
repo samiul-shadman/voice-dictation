@@ -1,24 +1,16 @@
-import { toast } from "../components/ui";
 import * as recorder from "./stores/recorder";
 import { getTranscriberState, transcribeFile } from "./stores/transcriber";
 
-const TRANSCRIBE_BUSY_MESSAGE = "Wait for the current transcription to finish";
-
-function friendlyError(e: unknown): string {
-  if (typeof e === "string") return e;
-  if (e instanceof Error) return e.message;
-  return String(e);
+function logError(context: string, e: unknown): void {
+  console.error(`[voice-note] ${context}`, e);
 }
 
 export async function startVoiceNoteHold(): Promise<void> {
-  if (getTranscriberState().busy) {
-    toast("error", TRANSCRIBE_BUSY_MESSAGE);
-    return;
-  }
+  if (getTranscriberState().busy) return;
   try {
     await recorder.startRecording();
   } catch (e) {
-    toast("error", `Could not start recording — ${friendlyError(e)}`);
+    logError("could not start recording", e);
   }
 }
 
@@ -26,15 +18,12 @@ export async function endVoiceNoteHold(): Promise<void> {
   const meta = await recorder.stopRecording();
   if (!meta) return;
   void transcribeFile(meta.path, true).catch((e) => {
-    toast("error", `Transcription failed — ${friendlyError(e)}`);
+    logError("transcription failed", e);
   });
 }
 
 export async function toggleVoiceNote(): Promise<void> {
-  if (getTranscriberState().busy) {
-    toast("error", TRANSCRIBE_BUSY_MESSAGE);
-    return;
-  }
+  if (getTranscriberState().busy) return;
   if (recorder.getRecorderState().recording) {
     await endVoiceNoteHold();
     return;
