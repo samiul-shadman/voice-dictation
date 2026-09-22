@@ -2531,6 +2531,7 @@ dependencies = [
  "audioadapter-buffers",
  "cpal",
  "enigo",
+ "gtk",
  "hound",
  "libc",
  "mp3lame-encoder",

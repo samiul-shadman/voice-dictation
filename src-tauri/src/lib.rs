@@ -2,12 +2,14 @@ mod audiodecode;
 mod downloader;
 mod engines;
 mod models;
+mod overlay_window;
 mod paste;
 mod recorder;
 mod settings;
 mod sysinfo;
 mod transcriber;
 mod transcripts;
+mod tray;
 
 use tauri::Manager;
 
@@ -21,6 +23,14 @@ pub fn run() {
             let settings = settings::SettingsState::load(app.handle())?;
             app.manage(settings);
             sysinfo::detect_and_cache(app.handle());
+            // Wayland cannot position or skip-taskbar the floating overlay
+            // windows, so the indicator lives in the panel as a tray icon.
+            #[cfg(target_os = "linux")]
+            if std::env::var("WAYLAND_DISPLAY").is_ok() {
+                if let Err(e) = tray::build(app.handle()) {
+                    eprintln!("could not create the tray indicator: {e}");
+                }
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -52,6 +62,8 @@ pub fn run() {
             models::default_models_dir,
             transcriber::transcribe_file,
             transcriber::get_transcript,
+            overlay_window::configure_overlay_window,
+            tray::set_tray_state,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
