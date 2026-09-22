@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { Mic, Trash2 } from "lucide-react";
+import { ChevronDown, Mic, Trash2 } from "lucide-react";
 import {
   Badge,
   Button,
@@ -253,7 +253,7 @@ export function LibraryPage() {
                         type="button"
                         onClick={() => setExpanded(isExpanded ? null : meta.path)}
                         aria-expanded={isExpanded}
-                        className="block w-full min-w-0 text-left"
+                        className="block w-full min-w-0 cursor-pointer text-left"
                       >
                         {rowBody}
                       </button>
@@ -267,6 +267,24 @@ export function LibraryPage() {
                     </Badge>
                   ) : (
                     <TranscribeCell meta={meta} />
+                  )}
+                  {hasTranscript && (
+                    <Tooltip label={isExpanded ? "Hide transcript" : "View transcript"} side="left">
+                      <IconButton
+                        label={isExpanded ? "Hide transcript" : "View transcript"}
+                        aria-expanded={isExpanded}
+                        className="shrink-0"
+                        onClick={() => setExpanded(isExpanded ? null : meta.path)}
+                      >
+                        <ChevronDown
+                          size={16}
+                          strokeWidth={1.75}
+                          className={`transition-transform duration-150 ${
+                            isExpanded ? "rotate-180" : ""
+                          }`}
+                        />
+                      </IconButton>
+                    </Tooltip>
                   )}
                   <Tooltip label="Delete recording" side="left">
                     <IconButton
