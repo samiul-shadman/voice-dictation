@@ -5,7 +5,7 @@
   "identifier": "com.samiul.local-audio-transcription-tool-v2",
   "build": {
     "beforeDevCommand": "bun run dev",
-    "devUrl": "http://localhost:1520",
+    "devUrl": "http://127.0.0.1:1520",
     "beforeBuildCommand": "bun run build",
     "frontendDist": "../dist"
   },
