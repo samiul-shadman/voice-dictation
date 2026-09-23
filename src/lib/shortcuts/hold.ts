@@ -11,7 +11,7 @@ export interface HoldActions {
 
 export const MIN_HOLD_MS = 300;
 // lost-keyup failsafe: force-finish if the release never arrives
-export const HARD_TIMEOUT_MS = 120_000;
+export const HARD_TIMEOUT_MS = 300_000;
 
 const DEFAULT_ACTIONS: Record<HoldKind, HoldActions> = {
   "voice-note": {
