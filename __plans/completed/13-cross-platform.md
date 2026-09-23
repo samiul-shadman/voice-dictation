@@ -70,6 +70,14 @@ Remaining (needs real hardware/CI):
   surface the TCC prompt via cpal and map denial to a setup card.
 - enigo 0.5 key names differ per platform (`Key::Meta`); keep combos in one table.
 - tao click-through is safe only after first show — overlay ordering stays.
+- **Indicator surface is user-selectable** (`indicatorMode`: `floating` | `panel` |
+  `both`, default `floating`). Linux Wayland cannot position floating overlays, so the
+  app auto-falls back to the panel/tray icon; GNOME-Wayland keeps a degraded floating
+  overlay plus a Settings hint because the panel needs the AppIndicator extension.
+  The panel is the only system-library dependency: Tauri dlopens
+  `libayatana-appindicator3.so.1` (fallback `libappindicator3.so.1`), so the Linux
+  bundles declare `libayatana-appindicator3-1` (deb) / `libappindicator-gtk3` (rpm)
+  alongside the standard WebKitGTK/GTK runtime libs.
 - sherpa aborts the process on invalid ONNX — keep validate-before-FFI intact.
 
 ## Verification

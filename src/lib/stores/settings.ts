@@ -5,6 +5,7 @@ import { listen } from "@tauri-apps/api/event";
 export type PasteMode = "auto" | "ctrl_v" | "ctrl_shift_v" | "shift_insert" | "clipboard_only";
 export type AudioFormat = "mp3" | "wav";
 export type Trigger = "hold" | "toggle";
+export type IndicatorMode = "floating" | "panel" | "both";
 
 export interface ShortcutConfig {
   combo: string | null;
@@ -23,6 +24,7 @@ export interface Settings {
   pasteMode: PasteMode;
   defaultModel: string;
   modelsDir: string | null;
+  indicatorMode: IndicatorMode;
   indicatorRecordingStyle: string;
   indicatorTranscriptionStyle: string;
 }
@@ -114,4 +116,17 @@ export function useIndicatorStyles(): {
 export function useGlobalShortcutsEnabled(): boolean | null {
   const settings = useSettingsStore();
   return settings ? settings.globalShortcutsEnabled : null;
+}
+
+export function useIndicatorMode(): IndicatorMode | null {
+  const settings = useSettingsStore();
+  return settings ? settings.indicatorMode : null;
+}
+
+export function subscribeSettings(fn: () => void): () => void {
+  ensureInit();
+  listeners.add(fn);
+  return () => {
+    listeners.delete(fn);
+  };
 }

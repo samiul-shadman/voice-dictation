@@ -23,13 +23,8 @@ pub fn run() {
             let settings = settings::SettingsState::load(app.handle())?;
             app.manage(settings);
             sysinfo::detect_and_cache(app.handle());
-            // Wayland cannot position or skip-taskbar the floating overlay
-            // windows, so the indicator lives in the panel as a tray icon.
-            #[cfg(target_os = "linux")]
-            if std::env::var("WAYLAND_DISPLAY").is_ok() {
-                if let Err(e) = tray::build(app.handle()) {
-                    eprintln!("could not create the tray indicator: {e}");
-                }
+            if let Err(e) = tray::apply(app.handle()) {
+                eprintln!("could not apply the tray indicator: {e}");
             }
             Ok(())
         })
@@ -41,6 +36,7 @@ pub fn run() {
             settings::set_audio_format,
             settings::set_paste_mode,
             settings::set_indicator_style,
+            settings::set_indicator_mode,
             settings::get_settings_warning,
             sysinfo::detect_environment,
             recorder::start_recording,

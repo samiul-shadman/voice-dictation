@@ -75,6 +75,11 @@ __docs/features/         v2 post-mortem distilled into feature lessons
 7. **Security boundaries:** recording reads/deletes are confined by
    `is_path_within_dir` + extension allowlist; settings writes are atomic
    (`.tmp` → rename). Preserve both when touching those paths.
+8. **The indicator surface is user-selectable** (`indicatorMode`: `floating` default,
+   `panel`, `both`), resolved by `resolveIndicatorSurface` in
+   `src/lib/windows/indicatorMode.ts` (panel is the Wayland fallback, GNOME-Wayland
+   degrades). Rust `settings.json` remains the single authority — never add a second
+   source of truth for the selected surface.
 
 ## Conventions
 

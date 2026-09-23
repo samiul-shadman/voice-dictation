@@ -17,8 +17,13 @@ import {
 } from "../components/ui";
 import type { BadgeKind } from "../components/ui/Badge";
 import type { RadioCardOption } from "../components/ui/RadioCardGroup";
-import { useAudioPrefs, usePasteMode, useSettings } from "../lib/stores/settings";
-import type { PasteMode } from "../lib/stores/settings";
+import {
+  useAudioPrefs,
+  useIndicatorMode,
+  usePasteMode,
+  useSettings,
+} from "../lib/stores/settings";
+import type { IndicatorMode, PasteMode } from "../lib/stores/settings";
 import { useEnvInfo, isLinux, isMac } from "../lib/stores/env";
 import type { EnvInfo, SessionType } from "../lib/stores/env";
 
@@ -35,6 +40,30 @@ const WTYPE_INSTALL: Record<PkgManager, string> = {
   dnf: "sudo dnf install wtype",
   pacman: "sudo pacman -S wtype",
 };
+
+const APPINDICATOR_INSTALL: Record<PkgManager, string> = {
+  apt: "sudo apt install gnome-shell-extension-appindicator",
+  dnf: "sudo dnf install gnome-shell-extension-appindicator",
+  pacman: "sudo pacman -S gnome-shell-extension-appindicator",
+};
+
+const INDICATOR_MODE_OPTIONS: readonly RadioCardOption<IndicatorMode>[] = [
+  {
+    value: "floating",
+    label: "Floating overlay",
+    hint: "Click-through pill near the bottom of the screen. Default.",
+  },
+  {
+    value: "panel",
+    label: "Menu bar / panel icon",
+    hint: "Status icon in your desktop panel. GNOME needs the AppIndicator extension.",
+  },
+  {
+    value: "both",
+    label: "Both",
+    hint: "Show the floating pill and the panel icon together.",
+  },
+];
 
 const LINUX_PASTE_MODE_OPTIONS: readonly RadioCardOption<PasteMode>[] = [
   {
@@ -323,10 +352,12 @@ export function SettingsPage() {
   const audioPrefs = useAudioPrefs();
   const settings = useSettings();
   const storePasteMode = usePasteMode();
+  const storeIndicatorMode = useIndicatorMode();
 
   const [pkgManager, setPkgManager] = useState<PkgManager>("apt");
   const [settingsWarning, setSettingsWarning] = useState<string | null>(null);
   const [pendingPasteMode, setPendingPasteMode] = useState<PasteMode | null>(null);
+  const [pendingIndicatorMode, setPendingIndicatorMode] = useState<IndicatorMode | null>(null);
   const [defaultRecordingsDir, setDefaultRecordingsDir] = useState<string | null>(null);
   const [modelsDir, setModelsDir] = useState<string | null>(null);
   const [defaultModelsDir, setDefaultModelsDir] = useState<string | null>(null);
@@ -334,6 +365,7 @@ export function SettingsPage() {
   const audioDir = audioPrefs?.audioDir ?? null;
   const modelsDirSetting = settings ? settings.modelsDir : undefined;
   const activePasteMode = pendingPasteMode ?? storePasteMode ?? "auto";
+  const activeIndicatorMode = pendingIndicatorMode ?? storeIndicatorMode ?? "floating";
 
   useEffect(() => {
     let cancelled = false;
@@ -389,6 +421,10 @@ export function SettingsPage() {
     setPendingPasteMode(null);
   }, [storePasteMode]);
 
+  useEffect(() => {
+    setPendingIndicatorMode(null);
+  }, [storeIndicatorMode]);
+
   async function handlePasteModeChange(mode: PasteMode): Promise<void> {
     if (mode === activePasteMode) return;
     setPendingPasteMode(mode);
@@ -397,6 +433,17 @@ export function SettingsPage() {
     } catch (error) {
       setPendingPasteMode(null);
       toast("error", `Could not set paste mode: ${errorMessage(error)}`);
+    }
+  }
+
+  async function handleIndicatorModeChange(mode: IndicatorMode): Promise<void> {
+    if (mode === activeIndicatorMode) return;
+    setPendingIndicatorMode(mode);
+    try {
+      await invoke("set_indicator_mode", { mode });
+    } catch (error) {
+      setPendingIndicatorMode(null);
+      toast("error", `Could not set indicator mode: ${errorMessage(error)}`);
     }
   }
 
@@ -563,6 +610,43 @@ export function SettingsPage() {
               value={activePasteMode}
               onChange={(mode) => void handlePasteModeChange(mode)}
               ariaLabel="Paste mode"
+            />
+          </div>
+        </SectionCard>
+
+        <SectionCard
+          title="Indicator"
+          description="Where recording feedback appears."
+        >
+          <div className="flex flex-col gap-3">
+            {env && isLinux(env) && env.sessionType.startsWith("wayland") && (
+              <div className="flex items-start gap-2 rounded-lg border border-warn/40 bg-warn-soft p-3 text-[13px] leading-relaxed text-text">
+                <CircleAlert
+                  size={16}
+                  strokeWidth={1.75}
+                  className="mt-0.5 shrink-0 text-warn"
+                />
+                <span>
+                  Wayland cannot position floating overlays — the panel icon is used
+                  instead. On GNOME the panel may need the AppIndicator extension.
+                  {env.sessionType === "wayland-gnome" && (
+                    <>
+                      {" "}
+                      Install it with{" "}
+                      <code className="font-mono text-xs text-warn">
+                        {APPINDICATOR_INSTALL[pkgManager]}
+                      </code>
+                      .
+                    </>
+                  )}
+                </span>
+              </div>
+            )}
+            <RadioCardGroup
+              options={INDICATOR_MODE_OPTIONS}
+              value={activeIndicatorMode}
+              onChange={(mode) => void handleIndicatorModeChange(mode)}
+              ariaLabel="Indicator mode"
             />
           </div>
         </SectionCard>

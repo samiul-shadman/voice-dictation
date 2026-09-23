@@ -21,6 +21,9 @@ documented in [`__plans/13-cross-platform.md`](./__plans/13-cross-platform.md)).
   Imports MP3, WAV, FLAC, OGG, M4A, AAC.
 - **Overlays** — click-through glass pills: shortcut indicator + recording/transcription
   animation (10+10 styles, in-app gallery).
+- **Selectable indicator surface** — floating pill (default), panel/tray icon, or both.
+  A per-user setting; the panel is the automatic fallback where floating overlays
+  cannot be positioned (Linux Wayland).
 - **Paste modes per OS** — ⌘V on macOS, Ctrl+V/Ctrl+Shift+V/Shift+Insert on
   Windows and Linux; X11 terminal auto-detection on Linux; `wtype` fallback on
   wlroots-Wayland; honest clipboard-only degradation on GNOME-Wayland.
@@ -28,11 +31,13 @@ documented in [`__plans/13-cross-platform.md`](./__plans/13-cross-platform.md)).
 ## Requirements
 
 Audio capture, decoding, and MP3 encoding are **built in** (cpal, symphonia, LAME) —
-no external binaries to install on any platform.
+no external binaries to install on any platform. The optional panel/tray surface is
+the one system-library dependency: it needs the AppIndicator runtime
+(`libayatana-appindicator3`) on Linux.
 
 | Platform | Needs | Notes |
 |---|---|---|
-| Linux | PulseAudio or PipeWire | X11 gives full paste + terminal detection; wlroots-Wayland uses `wtype` (`sudo apt install wtype`); GNOME-Wayland degrades to clipboard-only paste |
+| Linux | PulseAudio or PipeWire; `libayatana-appindicator3` for the Panel/Both surface (or the Wayland fallback) | X11 gives full paste + terminal detection; wlroots-Wayland uses `wtype` (`sudo apt install wtype`); GNOME-Wayland degrades to clipboard-only paste. On GNOME the panel icon also needs the "AppIndicator and KStatusNotifierItem Support" extension |
 | macOS | Microphone + Accessibility permissions | Both are requested in-app as setup cards (System Settings → Privacy & Security); paste uses ⌘V, default hotkey ⌘⇧Space |
 | Windows | WebView2 (bundled with the installer) | Paste uses Ctrl+V; default hotkey Ctrl+Shift+Space |
 

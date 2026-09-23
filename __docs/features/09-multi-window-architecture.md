@@ -16,6 +16,20 @@ frontend; only `main` is declared in `tauri.conf.json`.
 Window creation is enabled by the `core:webview:allow-create-webview-window`
 capability; `capabilities/default.json` applies to all four labels.
 
+## Indicator surface selection
+
+The overlay webviews are not always the active surface. `indicatorMode` (`floating`
+default | `panel` | `both`, owned by Rust `settings.json`) selects floating, the
+system tray/panel icon, or both. `src/lib/windows/indicatorMode.ts` resolves it
+purely: `resolveIndicatorSurface(mode, env)` returns `{ floating, panel, degraded,
+reason }`. `OverlaySync` applies the result — the `indicator` /
+`recording-indicator` windows are created or hidden only when `surface.floating`,
+and `set_tray_state` is pushed to Rust `tray.rs` only when `surface.panel`. The tray
+is created lazily by `tray::apply` from the same mode (menu: Open + Quit). On Linux
+Wayland floating cannot be positioned, so the panel becomes the fallback; on
+GNOME-Wayland the panel icon may be hidden behind the AppIndicator extension, so the
+floating overlay is kept in a `degraded` state instead of disappearing.
+
 ## Implementation
 
 - **Label routing** (`src/main.tsx:8`, `src/App.tsx:24-61`): at module scope,
@@ -69,6 +83,10 @@ capability; `capabilities/default.json` applies to all four labels.
 4. Contradictory localStorage-sharing assumptions (doc 08 gotcha 1).
 5. `focusable: false` + `skipTaskbar` + `shadow: false` are all required for an
    unobtrusive Linux overlay; dropping any of them changes behavior.
+6. **GNOME-Wayland tray visibility is not guaranteed** — the panel icon needs the
+   "AppIndicator and KStatusNotifierItem Support" extension. `resolveIndicatorSurface`
+   still returns `panel: true` (marked `degraded`), so never key visibility logic off
+   "is the tray actually on screen"; the floating overlay is the honest fallback.
 
 ## Difficulties & mitigations (from git `4dfe4c5`, `2309c2d`, `6316653`, `3ed55c9`, `2b2069f`)
 

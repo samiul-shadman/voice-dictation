@@ -58,6 +58,25 @@ fn icon_for(state: TrayState) -> Image<'static> {
     Image::new_owned(rgba, size, size)
 }
 
+fn floating_available(session_type: &str) -> bool {
+    !session_type.starts_with("wayland")
+}
+
+pub fn apply(app: &AppHandle) -> tauri::Result<()> {
+    let mode = crate::settings::with_settings(app, |s| s.indicator_mode.clone());
+    let session_type = crate::sysinfo::cached_env(app).session_type;
+    let wants_panel = matches!(mode.as_str(), "panel" | "both");
+    let wants_floating = matches!(mode.as_str(), "floating" | "both");
+    let panel_needed = wants_panel || (wants_floating && !floating_available(&session_type));
+    let exists = app.tray_by_id(TRAY_ID).is_some();
+    if panel_needed && !exists {
+        build(app)?;
+    } else if !panel_needed && exists {
+        let _ = app.remove_tray_by_id(TRAY_ID);
+    }
+    Ok(())
+}
+
 pub fn build(app: &AppHandle) -> tauri::Result<()> {
     let open = MenuItem::with_id(app, "open", "Open Voice Dictation", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
@@ -107,6 +126,15 @@ mod tests {
         assert_eq!(image.width(), ICON_SIZE);
         assert_eq!(image.height(), ICON_SIZE);
         assert_eq!(image.rgba().len(), (ICON_SIZE * ICON_SIZE * 4) as usize);
+    }
+
+    #[test]
+    fn floating_available_only_off_wayland() {
+        assert!(floating_available("x11"));
+        assert!(floating_available("native"));
+        assert!(floating_available("other"));
+        assert!(!floating_available("wayland-gnome"));
+        assert!(!floating_available("wayland-wlroots"));
     }
 
     #[test]

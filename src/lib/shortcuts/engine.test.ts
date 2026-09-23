@@ -98,6 +98,7 @@ function settingsWith(opts?: {
     pasteMode: "auto",
     defaultModel: "",
     modelsDir: null,
+    indicatorMode: "floating",
     indicatorRecordingStyle: "classic",
     indicatorTranscriptionStyle: "classic",
   };

@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { emitTo, listen } from "@tauri-apps/api/event";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { getArmed, onArmedChange } from "./shortcuts/engine";
@@ -6,6 +7,9 @@ import type { ArmedState } from "./shortcuts/engine";
 import { getLevel } from "./stores/levels";
 import { getRecorderState, subscribeRecorder } from "./stores/recorder";
 import { getTranscriberState, subscribeTranscriber } from "./stores/transcriber";
+import { getSettingsState, subscribeSettings } from "./stores/settings";
+import { getEnvState } from "./stores/env";
+import { resolveIndicatorSurface } from "./windows/indicatorMode";
 import { ensureIndicatorWindow, hideIndicatorWindow } from "./windows/indicator";
 import {
   ensureRecordingIndicatorWindow,
@@ -56,39 +60,60 @@ export function OverlaySync() {
     let toggleHideTimer: ReturnType<typeof setTimeout> | null = null;
     let prevArmed: ArmedState | null = null;
 
-    const syncVisibility = (): void => {
-      const armed = getArmed();
-      if (armed) {
-        if (toggleHideTimer) {
-          clearTimeout(toggleHideTimer);
-          toggleHideTimer = null;
-        }
-        void ensureIndicatorWindow();
-        if (armed.trigger === "toggle") {
-          toggleHideTimer = setTimeout(() => {
-            toggleHideTimer = null;
-            void hideIndicatorWindow();
-          }, TOGGLE_AUTO_HIDE_MS);
-        }
-      } else if (prevArmed && prevArmed.trigger === "hold") {
-        void hideIndicatorWindow();
-      }
-      prevArmed = armed;
+    const currentSurface = () => {
+      const mode = getSettingsState().settings?.indicatorMode ?? "floating";
+      return resolveIndicatorSurface(mode, getEnvState());
+    };
 
+    const pushTrayState = (surface: ReturnType<typeof resolveIndicatorSurface>) => {
+      if (!surface.panel) return;
       const recorder = getRecorderState();
       const transcriber = getTranscriberState();
-      const busy = recorder.recording || transcriber.busy;
-      if (busy) {
-        void ensureRecordingIndicatorWindow();
+      const state = recorder.recording ? "recording" : transcriber.busy ? "transcribing" : "idle";
+      void invoke("set_tray_state", { state }).catch(() => {});
+    };
+
+    const syncVisibility = (): void => {
+      const surface = currentSurface();
+      if (!surface.floating) {
         void hideIndicatorWindow();
-      } else {
         void hideRecordingIndicatorWindow();
+      } else {
+        const armed = getArmed();
+        if (armed) {
+          if (toggleHideTimer) {
+            clearTimeout(toggleHideTimer);
+            toggleHideTimer = null;
+          }
+          void ensureIndicatorWindow();
+          if (armed.trigger === "toggle") {
+            toggleHideTimer = setTimeout(() => {
+              toggleHideTimer = null;
+              void hideIndicatorWindow();
+            }, TOGGLE_AUTO_HIDE_MS);
+          }
+        } else if (prevArmed && prevArmed.trigger === "hold") {
+          void hideIndicatorWindow();
+        }
+        prevArmed = armed;
+
+        const recorder = getRecorderState();
+        const transcriber = getTranscriberState();
+        const busy = recorder.recording || transcriber.busy;
+        if (busy) {
+          void ensureRecordingIndicatorWindow();
+          void hideIndicatorWindow();
+        } else {
+          void hideRecordingIndicatorWindow();
+        }
       }
+      pushTrayState(surface);
     };
 
     unlisteners.push(subscribeRecorder(syncVisibility));
     unlisteners.push(subscribeTranscriber(syncVisibility));
     unlisteners.push(onArmedChange(syncVisibility));
+    unlisteners.push(subscribeSettings(syncVisibility));
 
     void (async () => {
       try {

@@ -26,6 +26,25 @@ transcribing. Styles are user-selectable from gallery pages.
   `{ time: elapsed, level }` (elapsed ticks every 500 ms); transcription style renders
   `{ percent }`; renders nothing when idle.
 
+## Indicator mode & surface resolution
+
+The animation can be announced on more than one surface. `indicatorMode`
+(`floating` default | `panel` | `both`, persisted in Rust `settings.json`) picks the
+click-through floating pill, the system tray/panel icon, or both. The decision is
+pure and centralized in `src/lib/windows/indicatorMode.ts`
+(`resolveIndicatorSurface(mode, env)` → `{ floating, panel, degraded, reason }`).
+`OverlaySync` consumes it: it creates/hides the `indicator` and
+`recording-indicator` windows only when `surface.floating`, and calls
+`set_tray_state` only when `surface.panel`.
+
+- X11 and macOS/Windows: `floating` → pill; `panel` → tray; `both` → pill + tray.
+- Linux Wayland (non-GNOME): floating overlays cannot be positioned, so floating
+  mode **auto-falls back** to the panel icon (`wayland-panel-fallback`).
+- GNOME-Wayland: the panel icon may not render without the AppIndicator extension,
+  so the app keeps a **degraded** floating overlay *and* the panel
+  (`gnome-wayland-degraded`), with an extension hint in Settings.
+- `panel` mode is always panel-only, regardless of session.
+
 ## Implementation
 
 - **Registry** (`src/lib/animationRegistry.tsx`): static code-defined entries
@@ -70,6 +89,11 @@ transcribing. Styles are user-selectable from gallery pages.
    `::before` layer because `@property` doesn't animate in the webview
    (`animations.css:999` comment); SVG `<stop stopColor="var(...)">` also doesn't work —
    inline `style` is used instead.
+6. **GNOME-Wayland tray visibility is not guaranteed**: the panel icon only appears
+   when the "AppIndicator and KStatusNotifierItem Support" extension is enabled.
+   `resolveIndicatorSurface` still reports `panel: true` and flags the surface
+   `degraded`, so a missing tray icon is expected — the degraded floating overlay and
+   the Settings hint are the feedback, not an app failure.
 
 ## Difficulties & mitigations (from git `2a87c31`, `bc31140`, `10a9d01`, `2b2069f`, `6316653`, `3ed55c9`)
 

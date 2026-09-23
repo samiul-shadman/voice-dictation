@@ -6,6 +6,7 @@ use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, Manager};
 
 pub const PASTE_MODES: [&str; 5] = ["auto", "ctrl_v", "ctrl_shift_v", "shift_insert", "clipboard_only"];
+pub const INDICATOR_MODES: [&str; 3] = ["floating", "panel", "both"];
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
@@ -19,6 +20,7 @@ pub struct AppSettings {
     pub models_dir: Option<String>,
     pub indicator_recording_style: String,
     pub indicator_transcription_style: String,
+    pub indicator_mode: String,
 }
 
 impl Default for AppSettings {
@@ -33,6 +35,7 @@ impl Default for AppSettings {
             models_dir: None,
             indicator_recording_style: "classic".to_string(),
             indicator_transcription_style: "classic".to_string(),
+            indicator_mode: "floating".to_string(),
         }
     }
 }
@@ -234,6 +237,9 @@ fn diff_fields(before: &AppSettings, after: &AppSettings) -> Vec<&'static str> {
     if before.indicator_transcription_style != after.indicator_transcription_style {
         fields.push("indicatorTranscriptionStyle");
     }
+    if before.indicator_mode != after.indicator_mode {
+        fields.push("indicatorMode");
+    }
     fields
 }
 
@@ -264,6 +270,13 @@ pub fn validate_paste_mode(mode: &str) -> Result<(), String> {
             "paste mode must be one of: auto, ctrl_v, ctrl_shift_v, shift_insert, clipboard_only"
                 .to_string(),
         );
+    }
+    Ok(())
+}
+
+pub fn validate_indicator_mode(mode: &str) -> Result<(), String> {
+    if !INDICATOR_MODES.contains(&mode) {
+        return Err("indicator mode must be one of: floating, panel, both".to_string());
     }
     Ok(())
 }
@@ -386,6 +399,16 @@ pub fn set_indicator_style(app: AppHandle, kind: String, id: String) -> Result<(
     })
 }
 
+#[tauri::command]
+pub fn set_indicator_mode(app: AppHandle, mode: String) -> Result<(), String> {
+    validate_indicator_mode(&mode)?;
+    update_settings(&app, move |s| {
+        s.indicator_mode = mode;
+        Ok(())
+    })?;
+    crate::tray::apply(&app).map_err(|e| format!("could not apply the indicator setting: {e}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -456,6 +479,19 @@ mod tests {
         assert!(validate_audio_dir("").is_err());
         let absolute = if cfg!(windows) { r"C:\absolute\path" } else { "/absolute/path" };
         assert!(validate_audio_dir(absolute).is_ok());
+    }
+
+    #[test]
+    fn default_indicator_mode_is_floating() {
+        assert_eq!(AppSettings::default().indicator_mode, "floating");
+    }
+
+    #[test]
+    fn validate_indicator_mode_accepts_known_modes_and_rejects_unknown() {
+        assert!(validate_indicator_mode("floating").is_ok());
+        assert!(validate_indicator_mode("panel").is_ok());
+        assert!(validate_indicator_mode("both").is_ok());
+        assert!(validate_indicator_mode("menu").is_err());
     }
 
     #[test]
