@@ -6,8 +6,9 @@ global hotkey anywhere in the OS, speak, release — the transcript is transcrib
 Everything runs on your machine; nothing leaves it except the one-time model download.
 
 Built on **Tauri 2 + React 19**. Design language: quiet, dark, precise.
-Platforms: **Linux, macOS, Windows** (Linux was the first target; the port is
-documented in [`__plans/13-cross-platform.md`](./__plans/13-cross-platform.md)).
+Platforms: **Linux** (`.deb` / `.AppImage`). The macOS and Windows ports are
+deferred — the cross-platform groundwork is documented in
+[`__plans/completed/13-cross-platform.md`](./__plans/completed/13-cross-platform.md).
 
 ## Features
 
@@ -49,7 +50,7 @@ in the app (Settings → Environment).
 ```bash
 bun install
 bun run tauri:dev     # dev server + app (Linux: X11)
-bun run tauri:build   # release build + bundles (.deb / .AppImage / .rpm)
+bun run tauri:build   # release build + bundles (.deb / .AppImage)
 ```
 
 Building on macOS/Windows needs no extra system packages; on Linux install the
@@ -83,7 +84,7 @@ bunx vitest run
   in memory (no temp files, no ffprobe).
 - **Paste** = enigo keystrokes per platform + clipboard-first fallback; Linux adds
   X11 terminal detection and the `wtype` Wayland path (`paste/linux.rs`).
-- Full build plans and module docs live in [`__plans/`](./__plans/README.md); the v2
+- Full build plans and module docs live in [`__plans/`](./__plans/completed/README.md); the v2
   post-mortem they distilled lives in [`__docs/features/`](./__docs/features/README.md).
 
 ## Scope notes (v1)

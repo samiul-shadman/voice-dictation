@@ -58,7 +58,7 @@ fn mic_available() -> bool {
 
 #[cfg(target_os = "macos")]
 fn accessibility_permission() -> Option<bool> {
-    Some(unsafe { ax_is_process_trusted() != 0 })
+    Some(unsafe { AXIsProcessTrusted() != 0 })
 }
 
 #[cfg(target_os = "macos")]

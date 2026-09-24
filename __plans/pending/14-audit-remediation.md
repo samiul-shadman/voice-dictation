@@ -1,6 +1,8 @@
 # 14 — Audit Remediation (code quality + architecture debt)
 
-Status: pending. Not started. No code changed until this plan is approved.
+Status: superseded on Linux by `16-linux-production-readiness.md`, which re-scopes
+this audit to the deb/AppImage target and re-verifies the drifted line numbers. The
+macOS/Windows items here remain the reference for when those ports resume.
 
 Origin: full-codebase audit (11k LOC, 4 commits) after the cross-platform port landed.
 The app is functionally complete on paper (M0–M5 all landed) but has one

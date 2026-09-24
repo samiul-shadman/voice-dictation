@@ -37,6 +37,10 @@ into a focused, single-purpose product.
 | [11-state-and-settings.md](11-state-and-settings.md) | Single-authority settings + cross-window sync | M0 |
 | [12-roadmap.md](12-roadmap.md) | Milestones, testing, risks, definition of done | — |
 | [13-cross-platform.md](13-cross-platform.md) | macOS + Windows port (pure-Rust audio, per-OS paste) | M6 |
+| [15-indicator-mode.md](15-indicator-mode.md) | Selectable indicator surface (floating / panel / both) | M6 |
+
+Pending: `../pending/14-audit-remediation.md` (superseded on Linux by 16),
+`../pending/16-linux-production-readiness.md` (active).
 
 ## Build order
 
