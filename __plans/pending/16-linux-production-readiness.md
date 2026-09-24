@@ -1,7 +1,9 @@
 # 16 — Linux Production Readiness (deb + AppImage)
 
-Status: pending. Supersedes the Linux-relevant subset of `14-audit-remediation.md`.
-Depends on `15-indicator-mode.md` (landed).
+Status: implementation complete — phases A–F landed. Remaining before close: the
+manual Linux-X11 smoke pass (including the new CSP + split capabilities) and
+observing CI green after push. Supersedes the Linux-relevant subset of
+`14-audit-remediation.md`. Depends on `15-indicator-mode.md` (landed).
 
 ## Goal
 
