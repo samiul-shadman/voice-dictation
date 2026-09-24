@@ -227,27 +227,13 @@ pub fn list_recordings(app: tauri::AppHandle) -> Vec<RecordingMeta> {
 
 #[tauri::command(async)]
 pub fn delete_recording(app: tauri::AppHandle, path: String) -> Result<(), String> {
-    let target = PathBuf::from(&path);
-    if !is_allowed_extension(&target) {
-        return Err(
-            "only audio recordings (mp3, wav, flac, ogg, m4a, aac) can be deleted".to_string(),
-        );
-    }
-    let canonical_target = target
-        .canonicalize()
-        .map_err(|_| format!("recording not found: {path}"))?;
-    let dir = with_settings(&app, |s| PathBuf::from(s.audio_dir.clone()));
-    if !is_path_within_dir(&dir, &target) {
-        return Err(
-            "refusing to delete: path is outside the configured recordings folder".to_string(),
-        );
-    }
+    let target = confine_to_audio_dir(&app, &path)?;
     let in_progress = with_inner(&app, |inner| {
         inner
             .recording
             .as_ref()
             .and_then(|r| r.path.canonicalize().ok())
-            .is_some_and(|p| p == canonical_target)
+            .is_some_and(|p| p == target)
     });
     if in_progress {
         return Err("cannot delete the recording that is currently in progress".to_string());
@@ -292,14 +278,7 @@ pub fn delete_all_recordings(app: tauri::AppHandle) -> Result<u32, String> {
 
 #[tauri::command(async)]
 pub fn read_recording(app: tauri::AppHandle, path: String) -> Result<tauri::ipc::Response, String> {
-    let target = PathBuf::from(&path);
-    if !is_allowed_extension(&target) {
-        return Err("only audio recordings (mp3, wav, flac, ogg, m4a, aac) can be read".to_string());
-    }
-    let dir = with_settings(&app, |s| PathBuf::from(s.audio_dir.clone()));
-    if !is_path_within_dir(&dir, &target) {
-        return Err(format!("recording not found: {path}"));
-    }
+    let target = confine_to_audio_dir(&app, &path)?;
     let bytes = fs::read(&target).map_err(|e| format!("could not read recording: {e}"))?;
     Ok(tauri::ipc::Response::new(bytes))
 }
@@ -329,6 +308,26 @@ pub(crate) fn is_path_within_dir(dir: &Path, path: &Path) -> bool {
         Err(_) => return false,
     };
     canonical_path.starts_with(canonical_dir)
+}
+
+pub(crate) fn confine_within(dir: &Path, path: &Path) -> Result<PathBuf, String> {
+    if !is_allowed_extension(path) {
+        return Err(
+            "only audio recordings (mp3, wav, flac, ogg, m4a, aac) can be used here".to_string(),
+        );
+    }
+    let canonical = path
+        .canonicalize()
+        .map_err(|_| format!("recording not found: {}", path.display()))?;
+    if !is_path_within_dir(dir, &canonical) {
+        return Err("refusing to use a path outside the configured recordings folder".to_string());
+    }
+    Ok(canonical)
+}
+
+pub(crate) fn confine_to_audio_dir(app: &AppHandle, path: &str) -> Result<PathBuf, String> {
+    let dir = with_settings(app, |s| PathBuf::from(s.audio_dir.clone()));
+    confine_within(&dir, Path::new(path))
 }
 
 pub(crate) fn sidecar_path_for(file: &Path) -> PathBuf {
@@ -769,6 +768,46 @@ mod tests {
             dir.path(),
             &dir.path().join("missing.mp3")
         ));
+    }
+
+    #[test]
+    fn confine_within_accepts_audio_inside_dir() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let inside = dir.path().join("recording-1.mp3");
+        fs::write(&inside, b"x").expect("write");
+        let confined = confine_within(dir.path(), &inside).expect("confined");
+        assert_eq!(confined, inside.canonicalize().expect("canonical"));
+    }
+
+    #[test]
+    fn confine_within_rejects_non_audio_extension() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let inside = dir.path().join("notes.txt");
+        fs::write(&inside, b"x").expect("write");
+        assert!(confine_within(dir.path(), &inside).is_err());
+    }
+
+    #[test]
+    fn confine_within_rejects_traversal_and_missing() {
+        let parent = tempfile::tempdir().expect("parent");
+        let dir = parent.path().join("audio");
+        fs::create_dir(&dir).expect("mkdir");
+        let secret = parent.path().join("secret.mp3");
+        fs::write(&secret, b"x").expect("write secret");
+        assert!(confine_within(&dir, &dir.join("..").join("secret.mp3")).is_err());
+        assert!(confine_within(&dir, &dir.join("missing.mp3")).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn confine_within_rejects_symlink_escape() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let outside = tempfile::tempdir().expect("outside");
+        let secret = outside.path().join("secret.mp3");
+        fs::write(&secret, b"x").expect("write secret");
+        let link = dir.path().join("link.mp3");
+        std::os::unix::fs::symlink(&secret, &link).expect("symlink");
+        assert!(confine_within(dir.path(), &link).is_err());
     }
 
     #[test]

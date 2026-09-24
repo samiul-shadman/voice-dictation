@@ -7,8 +7,8 @@ Guidance for AI coding agents working in this repository.
 A single-purpose, keyboard-first **voice dictation app**: hold (or toggle) a global
 hotkey anywhere in the OS → record → transcribe **locally** with NVIDIA Parakeet
 (int8 ONNX via sherpa-onnx) → auto-paste the transcript into the focused app.
-Multi-platform (Linux, macOS, Windows); Linux was the original target, the
-cross-platform port is documented in `__plans/13-cross-platform.md`.
+Linux-first (`.deb` / `.AppImage`); the macOS/Windows port is deferred and
+documented in `__plans/completed/13-cross-platform.md`.
 
 - **Stack:** Tauri 2 (Rust backend) + React 19 + TypeScript + Vite + Tailwind 4.
 - **Design language:** quiet, dark, precise. No feature creep — single-purpose product.
@@ -60,7 +60,8 @@ __docs/features/         v2 post-mortem distilled into feature lessons
    settings or a second source of truth.
 2. **Validate before FFI:** every model file is size/integrity-validated and the
    decoder ONNX is metadata-patched *before* the engine loads — sherpa aborts the
-   process on bad files otherwise.
+   process on bad files otherwise. `catch_unwind` does **not** cover this: it cannot
+   catch `exit(-1)`, `SIGABRT`, or foreign C++ exceptions.
 3. **Global shortcuts are registered only by the main window.** Combos flow through
    the canonical vocabulary in `src/lib/shortcuts/canonical.ts` (canonical format
    `ctrl+shift+space`, plugin accelerator, human display). Do not bypass it.
@@ -80,6 +81,14 @@ __docs/features/         v2 post-mortem distilled into feature lessons
    `src/lib/windows/indicatorMode.ts` (panel is the Wayland fallback, GNOME-Wayland
    degrades). Rust `settings.json` remains the single authority — never add a second
    source of truth for the selected surface.
+9. **Release builds unwind — `panic = "abort"` is deliberately absent.** The
+   `catch_unwind` guards in `downloader.rs` / `transcriber.rs` turn worker panics
+   into `model-download-error` / `transcribe-error` events. `panic = "abort"` silently
+   disables both guards with no compile error and no test failure — never re-add it.
+10. **Every command that takes a filesystem path confines it first** via
+    `confine_to_audio_dir` (extension allowlist + `is_path_within_dir` on the
+    canonicalized path) and then operates on the returned canonical path. Check-then-use
+    on two different values is CWE-367.
 
 ## Conventions
 

@@ -1,5 +1,5 @@
 use serde::Serialize;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -160,18 +160,20 @@ fn spawn_progress_watcher(
 
 fn run_transcription(
     app: AppHandle,
-    path: String,
+    audio_path: PathBuf,
+    event_path: String,
     model_id: String,
     auto_paste: bool,
 ) -> Result<(), String> {
     let paths = models::ensure_model_ready(&app, &model_id)?;
-    let (samples, audio_duration_ms) = load_pcm16k_mono(Path::new(&path))?;
+    let (samples, audio_duration_ms) = load_pcm16k_mono(&audio_path)?;
     // sherpa-rs 0.6.8 (sherpa-onnx 1.12.9) has no recognition callback, so
     // progress is time-estimated from the audio duration (×0.35 realtime
     // factor) and clamped below 100 % until completion.
     let estimated_total_ms = (audio_duration_ms as f64 * 0.35) as u64;
     let stop = Arc::new(AtomicBool::new(false));
-    let watcher = spawn_progress_watcher(app.clone(), path.clone(), estimated_total_ms, stop.clone());
+    let watcher =
+        spawn_progress_watcher(app.clone(), event_path.clone(), estimated_total_ms, stop.clone());
     let _stop_on_drop = StopWatcher(stop);
     let started = Instant::now();
     let text = with_engine(&paths, |engine| {
@@ -181,7 +183,7 @@ fn run_transcription(
     drop(_stop_on_drop);
     let _ = watcher.join();
     let data = TranscriptData {
-        audio_path: path.clone(),
+        audio_path: event_path.clone(),
         text: text.clone(),
         model_id: model_id.clone(),
         duration_ms,
@@ -190,7 +192,7 @@ fn run_transcription(
             .map(|d| d.as_millis() as u64)
             .unwrap_or(0),
     };
-    if let Err(e) = transcripts::save_sidecar(Path::new(&path), &data) {
+    if let Err(e) = transcripts::save_sidecar(&audio_path, &data) {
         eprintln!("could not save the transcript sidecar: {e}");
     }
     // Paste runs on the worker thread — the Linux clipboard backend deadlocks
@@ -203,7 +205,7 @@ fn run_transcription(
     let _ = app.emit(
         "transcribe-complete",
         TranscribeCompleteEvent {
-            path,
+            path: event_path,
             text,
             model_id,
             duration_ms,
@@ -222,6 +224,7 @@ pub fn transcribe_file(
     auto_paste: bool,
 ) -> Result<(), String> {
     let _ = window;
+    let audio_path = crate::recorder::confine_to_audio_dir(&app, &path)?;
     if !BUSY.try_acquire() {
         return Err("a transcription is already in progress".to_string());
     }
@@ -236,12 +239,14 @@ pub fn transcribe_file(
     // path from it (doc 07 adoption rule, Rust-side tested).
     let _ = app.emit("transcribe-progress", ProgressEvent::initial(&path));
     let app_for_worker = app.clone();
-    let path_for_worker = path.clone();
+    let event_path = path.clone();
+    let error_path = path;
     std::thread::spawn(move || {
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             run_transcription(
                 app_for_worker.clone(),
-                path_for_worker.clone(),
+                audio_path,
+                event_path,
                 model_id,
                 auto_paste,
             )
@@ -253,7 +258,7 @@ pub fn transcribe_file(
                 let _ = app_for_worker.emit(
                     "transcribe-error",
                     TranscribeErrorEvent {
-                        path: path_for_worker,
+                        path: error_path,
                         message,
                     },
                 );
@@ -262,7 +267,7 @@ pub fn transcribe_file(
                 let _ = app_for_worker.emit(
                     "transcribe-error",
                     TranscribeErrorEvent {
-                        path: path_for_worker,
+                        path: error_path,
                         message: "transcription failed unexpectedly — try again".to_string(),
                     },
                 );
@@ -273,8 +278,9 @@ pub fn transcribe_file(
 }
 
 #[tauri::command]
-pub fn get_transcript(path: String) -> Option<TranscriptData> {
-    transcripts::load_sidecar(Path::new(&path))
+pub fn get_transcript(app: tauri::AppHandle, path: String) -> Option<TranscriptData> {
+    let target = crate::recorder::confine_to_audio_dir(&app, &path).ok()?;
+    transcripts::load_sidecar(&target)
 }
 
 #[cfg(test)]
