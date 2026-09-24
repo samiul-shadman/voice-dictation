@@ -125,23 +125,33 @@ fn wtype_command() -> std::process::Command {
     command
 }
 
+#[cfg(target_os = "linux")]
+fn classify_session(
+    xdg_session_type: Option<&str>,
+    wayland_display: Option<&str>,
+    current_desktop: Option<&str>,
+) -> String {
+    if xdg_session_type == Some("x11") {
+        return "x11".to_string();
+    }
+    if wayland_display.is_some() {
+        let desktop = current_desktop.unwrap_or_default();
+        if desktop.to_lowercase().contains("gnome") {
+            return "wayland-gnome".to_string();
+        }
+        return "wayland-wlroots".to_string();
+    }
+    "other".to_string()
+}
+
 fn detect_session_type() -> String {
     #[cfg(target_os = "linux")]
     {
-        if std::env::var("XDG_SESSION_TYPE")
-            .map(|v| v == "x11")
-            .unwrap_or(false)
-        {
-            return "x11".to_string();
-        }
-        if std::env::var("WAYLAND_DISPLAY").is_ok() {
-            let desktop = std::env::var("XDG_CURRENT_DESKTOP").unwrap_or_default();
-            if desktop.to_lowercase().contains("gnome") {
-                return "wayland-gnome".to_string();
-            }
-            return "wayland-wlroots".to_string();
-        }
-        "other".to_string()
+        classify_session(
+            std::env::var("XDG_SESSION_TYPE").ok().as_deref(),
+            std::env::var("WAYLAND_DISPLAY").ok().as_deref(),
+            std::env::var("XDG_CURRENT_DESKTOP").ok().as_deref(),
+        )
     }
     #[cfg(not(target_os = "linux"))]
     {
@@ -179,5 +189,95 @@ fn run_with_timeout(
                 return None;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn accessibility_permission_is_none_on_non_macos() {
+        assert_eq!(accessibility_permission(), None);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn classify_session_detects_x11() {
+        assert_eq!(classify_session(Some("x11"), None, None), "x11");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn classify_session_x11_takes_precedence_over_wayland() {
+        assert_eq!(
+            classify_session(Some("x11"), Some("wayland-0"), Some("GNOME")),
+            "x11"
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn classify_session_detects_wayland_wlroots() {
+        assert_eq!(
+            classify_session(None, Some("wayland-0"), Some("sway")),
+            "wayland-wlroots"
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn classify_session_detects_wayland_gnome_case_insensitively() {
+        assert_eq!(
+            classify_session(Some("wayland"), Some("wayland-0"), Some("GNOME")),
+            "wayland-gnome"
+        );
+        assert_eq!(
+            classify_session(Some("wayland"), Some("wayland-0"), Some("ubuntu:GNOME")),
+            "wayland-gnome"
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn classify_session_gnome_only_matters_when_wayland_set() {
+        assert_eq!(classify_session(None, None, Some("GNOME")), "other");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn classify_session_other_when_nothing_set() {
+        assert_eq!(classify_session(None, None, None), "other");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn run_with_timeout_returns_success_status() {
+        let mut command = std::process::Command::new("sh");
+        command.arg("-c").arg("exit 0");
+        let status = run_with_timeout(command, Duration::from_secs(5)).expect("expected status");
+        assert!(status.success());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn run_with_timeout_returns_failure_status() {
+        let mut command = std::process::Command::new("sh");
+        command.arg("-c").arg("exit 3");
+        let status = run_with_timeout(command, Duration::from_secs(5)).expect("expected status");
+        assert!(!status.success());
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn run_with_timeout_kills_and_reaps_on_timeout() {
+        let mut command = std::process::Command::new("sh");
+        command.arg("-c").arg("sleep 5");
+        let start = std::time::Instant::now();
+        let status = run_with_timeout(command, Duration::from_millis(100));
+        let elapsed = start.elapsed();
+        assert!(status.is_none());
+        assert!(elapsed < Duration::from_secs(2), "elapsed: {elapsed:?}");
     }
 }

@@ -66,11 +66,15 @@ vi.mock("../voiceNote", () => ({
   toggleVoiceNote: vi.fn(async () => {}),
 }));
 
-vi.mock("../stores/recorder", () => ({
-  startRecording: vi.fn(async () => {}),
-  stopRecording: vi.fn(async () => null),
-  cancelRecording: vi.fn(async () => {}),
-}));
+vi.mock("../stores/recorder", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../stores/recorder")>();
+  return {
+    ...actual,
+    startRecording: vi.fn(async () => {}),
+    stopRecording: vi.fn(async () => null),
+    cancelRecording: vi.fn(async () => {}),
+  };
+});
 
 function settingsWith(opts?: {
   master?: boolean;

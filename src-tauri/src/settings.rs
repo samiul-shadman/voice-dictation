@@ -506,6 +506,110 @@ mod tests {
     }
 
     #[test]
+    fn diff_fields_empty_when_settings_equal() {
+        let before = AppSettings::default();
+        let after = AppSettings::default();
+        assert!(diff_fields(&before, &after).is_empty());
+    }
+
+    #[test]
+    fn diff_fields_reports_each_diffable_field_individually() {
+        let cases: Vec<(&str, Box<dyn Fn(&mut AppSettings)>)> = vec![
+            (
+                "globalShortcutsEnabled",
+                Box::new(|s: &mut AppSettings| s.global_shortcuts_enabled = false),
+            ),
+            (
+                "shortcuts.voiceNote",
+                Box::new(|s: &mut AppSettings| s.shortcuts.voice_note.trigger = "toggle".to_string()),
+            ),
+            (
+                "shortcuts.record",
+                Box::new(|s: &mut AppSettings| s.shortcuts.record.enabled = true),
+            ),
+            (
+                "audioDir",
+                Box::new(|s: &mut AppSettings| s.audio_dir = "/tmp/audio".to_string()),
+            ),
+            (
+                "audioFormat",
+                Box::new(|s: &mut AppSettings| s.audio_format = "wav".to_string()),
+            ),
+            (
+                "pasteMode",
+                Box::new(|s: &mut AppSettings| s.paste_mode = "ctrl_v".to_string()),
+            ),
+            (
+                "defaultModel",
+                Box::new(|s: &mut AppSettings| s.default_model = "parakeet".to_string()),
+            ),
+            (
+                "modelsDir",
+                Box::new(|s: &mut AppSettings| s.models_dir = Some("/tmp/models".to_string())),
+            ),
+            (
+                "indicatorRecordingStyle",
+                Box::new(|s: &mut AppSettings| s.indicator_recording_style = "wave".to_string()),
+            ),
+            (
+                "indicatorTranscriptionStyle",
+                Box::new(|s: &mut AppSettings| {
+                    s.indicator_transcription_style = "wave".to_string()
+                }),
+            ),
+            (
+                "indicatorMode",
+                Box::new(|s: &mut AppSettings| s.indicator_mode = "panel".to_string()),
+            ),
+        ];
+
+        for (expected, mutate) in cases {
+            let before = AppSettings::default();
+            let mut after = AppSettings::default();
+            mutate(&mut after);
+            assert_eq!(
+                diff_fields(&before, &after),
+                vec![expected],
+                "unexpected diff for {expected}"
+            );
+        }
+    }
+
+    #[test]
+    fn diff_fields_reports_all_simultaneous_changes_in_order() {
+        let before = AppSettings::default();
+        let mut after = AppSettings::default();
+        after.global_shortcuts_enabled = false;
+        after.shortcuts.voice_note.enabled = false;
+        after.shortcuts.record.combo = Some("ctrl+alt+r".to_string());
+        after.audio_dir = "/tmp/audio".to_string();
+        after.audio_format = "wav".to_string();
+        after.paste_mode = "clipboard_only".to_string();
+        after.default_model = "parakeet".to_string();
+        after.models_dir = Some("/tmp/models".to_string());
+        after.indicator_recording_style = "wave".to_string();
+        after.indicator_transcription_style = "wave".to_string();
+        after.indicator_mode = "both".to_string();
+
+        assert_eq!(
+            diff_fields(&before, &after),
+            vec![
+                "globalShortcutsEnabled",
+                "shortcuts.voiceNote",
+                "shortcuts.record",
+                "audioDir",
+                "audioFormat",
+                "pasteMode",
+                "defaultModel",
+                "modelsDir",
+                "indicatorRecordingStyle",
+                "indicatorTranscriptionStyle",
+                "indicatorMode",
+            ]
+        );
+    }
+
+    #[test]
     fn atomic_save_leaves_no_tmp_behind() {
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("settings.json");

@@ -1,13 +1,44 @@
-import { describe, expect, it, vi } from "vitest";
+// @vitest-environment jsdom
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   PLAYBACK_SPEEDS,
   claimExclusivePlayback,
   clampTime,
+  forgetAllRecordingUrls,
+  forgetRecordingUrl,
+  getCachedRecordingBytes,
+  loadRecordingUrl,
   nextSpeed,
   pausePath,
   unregisterPlayback,
 } from "./audioPlayback";
 import type { AudioElementLike } from "./audioPlayback";
+
+const { readRecordingBytesMock } = vi.hoisted(() => ({
+  readRecordingBytesMock: vi.fn(),
+}));
+
+vi.mock("./audio", () => ({
+  readRecordingBytes: readRecordingBytesMock,
+}));
+
+let urlCounter = 0;
+const createObjectURLMock = vi.fn(() => `blob:mock-${++urlCounter}`);
+const revokeObjectURLMock = vi.fn();
+
+URL.createObjectURL = createObjectURLMock as unknown as typeof URL.createObjectURL;
+URL.revokeObjectURL = revokeObjectURLMock as unknown as typeof URL.revokeObjectURL;
+
+beforeEach(() => {
+  forgetAllRecordingUrls();
+  urlCounter = 0;
+  createObjectURLMock.mockClear();
+  revokeObjectURLMock.mockClear();
+  readRecordingBytesMock.mockReset();
+  readRecordingBytesMock.mockImplementation(
+    async (path: string) => new ArrayBuffer(path.length + 1),
+  );
+});
 
 function fakeElement(paused: boolean) {
   return { pause: vi.fn(), paused } satisfies AudioElementLike;
@@ -91,5 +122,63 @@ describe("nextSpeed", () => {
 
   it("falls back to the first speed for unknown values", () => {
     expect(nextSpeed(3)).toBe(PLAYBACK_SPEEDS[0]);
+  });
+});
+
+describe("recording url cache (LRU)", () => {
+  async function loadPaths(paths: string[]): Promise<string[]> {
+    const urls: string[] = [];
+    for (const path of paths) urls.push(await loadRecordingUrl(path));
+    return urls;
+  }
+
+  it("bounds the cache to 8 entries and revokes the evicted object URLs", async () => {
+    const paths = Array.from({ length: 10 }, (_, i) => `/rec-${i}.wav`);
+    const urls = await loadPaths(paths);
+
+    expect(URL.revokeObjectURL).toHaveBeenCalledTimes(2);
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith(urls[0]);
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith(urls[1]);
+
+    expect(getCachedRecordingBytes(paths[0])).toBeNull();
+    expect(getCachedRecordingBytes(paths[1])).toBeNull();
+    expect(getCachedRecordingBytes(paths[2])).not.toBeNull();
+    expect(getCachedRecordingBytes(paths[9])).not.toBeNull();
+  });
+
+  it("evicts the least-recently-used entry after a cache hit promotes it", async () => {
+    const paths = ["A", "B", "C", "D", "E", "F", "G", "H"].map((n) => `/rec-${n}.wav`);
+    const urls = await loadPaths(paths);
+
+    await loadRecordingUrl(paths[0]);
+
+    expect(URL.createObjectURL).toHaveBeenCalledTimes(8);
+    expect(URL.revokeObjectURL).not.toHaveBeenCalled();
+
+    await loadRecordingUrl("/rec-I.wav");
+
+    expect(URL.revokeObjectURL).toHaveBeenCalledTimes(1);
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith(urls[1]);
+    expect(URL.revokeObjectURL).not.toHaveBeenCalledWith(urls[0]);
+
+    expect(getCachedRecordingBytes(paths[0])).not.toBeNull();
+    expect(getCachedRecordingBytes(paths[1])).toBeNull();
+    expect(getCachedRecordingBytes("/rec-I.wav")).not.toBeNull();
+  });
+
+  it("forgetRecordingUrl revokes and removes only the target entry", async () => {
+    const [urlA, urlB] = await loadPaths(["/a.mp3", "/b.mp3"]);
+
+    forgetRecordingUrl("/a.mp3");
+
+    expect(URL.revokeObjectURL).toHaveBeenCalledTimes(1);
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith(urlA);
+    expect(URL.revokeObjectURL).not.toHaveBeenCalledWith(urlB);
+
+    expect(getCachedRecordingBytes("/a.mp3")).toBeNull();
+    expect(getCachedRecordingBytes("/b.mp3")).not.toBeNull();
+
+    forgetRecordingUrl("/a.mp3");
+    expect(URL.revokeObjectURL).toHaveBeenCalledTimes(1);
   });
 });
