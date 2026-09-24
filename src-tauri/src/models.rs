@@ -413,7 +413,7 @@ pub(crate) fn is_downloaded(models_dir: &Path, id: &str) -> bool {
     }
 }
 
-pub fn ensure_model_ready(app: &tauri::AppHandle, id: &str) -> Result<ModelPaths, String> {
+pub(crate) fn ensure_model_ready(app: &tauri::AppHandle, id: &str) -> Result<ModelPaths, String> {
     let spec =
         find_spec(id).ok_or_else(|| format!("unknown model id: {id}"))?;
     verify_dir_with(&resolve_models_dir(app).join(id), spec)

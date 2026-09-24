@@ -1,6 +1,4 @@
 use serde::Serialize;
-#[cfg(target_os = "linux")]
-use std::sync::mpsc;
 use std::sync::Mutex;
 #[cfg(target_os = "linux")]
 use std::time::Duration;
@@ -37,7 +35,11 @@ fn cache_env(app: &AppHandle, info: &EnvInfo) {
 
 pub fn cached_env(app: &AppHandle) -> EnvInfo {
     match app.try_state::<EnvState>() {
-        Some(state) => state.0.lock().expect("env state lock poisoned").clone(),
+        Some(state) => state
+            .0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone(),
         None => EnvInfo {
             platform: std::env::consts::OS.to_string(),
             mic_available: false,
@@ -107,7 +109,7 @@ fn accessibility_permission() -> Option<bool> {
 fn wtype_available() -> Option<bool> {
     Some(
         run_with_timeout(wtype_command(), Duration::from_secs(5))
-            .is_some_and(|o| o.status.success()),
+            .is_some_and(|status| status.success()),
     )
 }
 
@@ -151,26 +153,31 @@ fn detect_session_type() -> String {
 fn run_with_timeout(
     mut command: std::process::Command,
     timeout: Duration,
-) -> Option<std::process::Output> {
+) -> Option<std::process::ExitStatus> {
     use std::process::Stdio;
 
     command
         .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    let child = command.spawn().ok()?;
-    let pid = child.id();
-    let (sender, receiver) = mpsc::channel();
-    std::thread::spawn(move || {
-        let _ = sender.send(child.wait_with_output().ok());
-    });
-    match receiver.recv_timeout(timeout) {
-        Ok(output) => output,
-        Err(_) => {
-            unsafe {
-                libc::kill(pid as i32, libc::SIGKILL);
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    let mut child = command.spawn().ok()?;
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return Some(status),
+            Ok(None) => {
+                if std::time::Instant::now() >= deadline {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return None;
+                }
+                std::thread::sleep(Duration::from_millis(20));
             }
-            None
+            Err(_) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return None;
+            }
         }
     }
 }

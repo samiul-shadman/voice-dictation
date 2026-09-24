@@ -106,15 +106,20 @@ impl SettingsState {
         Ok(state)
     }
 
-    #[allow(dead_code)]
     pub fn warning(&self) -> Option<String> {
-        self.warning.lock().expect("settings warning lock poisoned").clone()
+        self.warning
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
     }
 }
 
 pub fn with_settings<T>(app: &AppHandle, f: impl FnOnce(&AppSettings) -> T) -> T {
     let state = app.state::<SettingsState>();
-    let guard = state.inner.lock().expect("settings lock poisoned");
+    let guard = state
+        .inner
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     f(&guard)
 }
 
@@ -124,11 +129,17 @@ pub fn update_settings(
 ) -> Result<(), String> {
     let state = app.state::<SettingsState>();
     let before = {
-        let guard = state.inner.lock().expect("settings lock poisoned");
+        let guard = state
+            .inner
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         guard.clone()
     };
     let after = {
-        let mut guard = state.inner.lock().expect("settings lock poisoned");
+        let mut guard = state
+            .inner
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         f(&mut guard)?;
         guard.clone()
     };

@@ -115,6 +115,8 @@ export function OverlaySync() {
     unlisteners.push(onArmedChange(syncVisibility));
     unlisteners.push(subscribeSettings(syncVisibility));
 
+    syncVisibility();
+
     void (async () => {
       try {
         const unlisten = await listen<{ label: string }>("overlay-ready", (e) => {
@@ -136,7 +138,9 @@ export function OverlaySync() {
             void handleOverlayReady(win.label);
           }
         }
-      } catch {}
+      } catch (e) {
+        console.warn("[overlaysync] initial window enumeration failed", e);
+      }
     })();
 
     return () => {

@@ -101,7 +101,9 @@ export function IndicatorPage() {
         }
         unlisteners.push(offDisarmed);
         await emitTo("main", "overlay-ready", { label: "indicator" });
-      } catch {}
+      } catch (e) {
+        console.error("[indicator] event setup failed", e);
+      }
     })();
     return () => {
       disposed = true;

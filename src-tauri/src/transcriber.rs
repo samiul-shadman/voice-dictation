@@ -238,11 +238,9 @@ fn run_transcription(
 #[tauri::command(async)]
 pub fn transcribe_file(
     app: tauri::AppHandle,
-    window: tauri::Window,
     path: String,
     auto_paste: bool,
 ) -> Result<(), String> {
-    let _ = window;
     let audio_path = crate::recorder::confine_to_audio_dir(&app, &path)?;
     if !BUSY.try_acquire() {
         return Err("a transcription is already in progress".to_string());

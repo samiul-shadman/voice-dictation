@@ -68,7 +68,9 @@ export function ensureInit(): void {
       await listen<unknown>("settings-changed", () => {
         void reloadSettings();
       });
-    } catch {}
+    } catch (e) {
+      console.error("[settings] settings-changed listener failed", e);
+    }
   })();
 }
 

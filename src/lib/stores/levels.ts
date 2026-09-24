@@ -19,7 +19,9 @@ export function ensureInit(): void {
         const raw = typeof e.payload?.level === "number" && Number.isFinite(e.payload.level) ? e.payload.level : 0;
         setState(Math.max(0, Math.min(1, raw)));
       });
-    } catch {}
+    } catch (e) {
+      console.error("[levels] recording-level listener failed", e);
+    }
   })();
 }
 

@@ -7,7 +7,20 @@ export interface AudioElementLike {
 
 const playing = new Set<AudioElementLike>();
 const elementPaths = new WeakMap<AudioElementLike, string>();
+const URL_CACHE_LIMIT = 8;
 const urlCache = new Map<string, { url: string; bytes: ArrayBuffer }>();
+
+function storeCacheEntry(path: string, entry: { url: string; bytes: ArrayBuffer }): void {
+  urlCache.delete(path);
+  urlCache.set(path, entry);
+  while (urlCache.size > URL_CACHE_LIMIT) {
+    const oldest = urlCache.keys().next();
+    if (oldest.done) break;
+    const evicted = urlCache.get(oldest.value);
+    if (evicted) URL.revokeObjectURL(evicted.url);
+    urlCache.delete(oldest.value);
+  }
+}
 
 function mimeForPath(path: string): string {
   const lower = path.toLowerCase();
@@ -56,17 +69,22 @@ export function pausePath(path: string): boolean {
 
 export async function loadRecordingUrl(path: string): Promise<string> {
   const cached = urlCache.get(path);
-  if (cached) return cached.url;
+  if (cached) {
+    storeCacheEntry(path, cached);
+    return cached.url;
+  }
   const bytes = await readRecordingBytes(path);
   const blob = new Blob([bytes], { type: mimeForPath(path) });
   const url = URL.createObjectURL(blob);
-  urlCache.set(path, { url, bytes });
+  storeCacheEntry(path, { url, bytes });
   return url;
 }
 
 export function getCachedRecordingBytes(path: string): ArrayBuffer | null {
   const cached = urlCache.get(path);
-  return cached ? cached.bytes : null;
+  if (!cached) return null;
+  storeCacheEntry(path, cached);
+  return cached.bytes;
 }
 
 export function forgetRecordingUrl(path: string): void {

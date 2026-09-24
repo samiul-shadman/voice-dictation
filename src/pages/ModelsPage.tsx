@@ -57,6 +57,7 @@ export function ModelsPage() {
   }, []);
 
   useEffect(() => {
+    let disposed = false;
     void load();
     const unlistens: Array<() => void> = [];
     void (async () => {
@@ -65,8 +66,14 @@ export function ModelsPage() {
           const unlisten = await listen(event, () => {
             void load();
           });
+          if (disposed) {
+            unlisten();
+            continue;
+          }
           unlistens.push(unlisten);
-        } catch {}
+        } catch (e) {
+          console.warn("[modelspage] failed to subscribe to", event, e);
+        }
       }
       try {
         const unlisten = await listen<{ field: string }>("settings-changed", (e) => {
@@ -74,10 +81,17 @@ export function ModelsPage() {
             void load();
           }
         });
+        if (disposed) {
+          unlisten();
+          return;
+        }
         unlistens.push(unlisten);
-      } catch {}
+      } catch (e) {
+        console.warn("[modelspage] failed to subscribe to settings-changed", e);
+      }
     })();
     return () => {
+      disposed = true;
       for (const unlisten of unlistens) unlisten();
     };
   }, [load]);

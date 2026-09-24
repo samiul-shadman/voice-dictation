@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "overlays",
+  "description": "Capabilities for the indicator overlays: event listening and emitting only, via core:default. Overlays never register shortcuts or create webviews.",
+  "windows": ["indicator", "recording-indicator"],
+  "permissions": ["core:default"]
+}

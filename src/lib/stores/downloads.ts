@@ -87,7 +87,9 @@ export function ensureInit(): void {
       await listen<IdPayload>("model-download-cancelled", (e) => {
         upsert(e.payload.id, { state: "cancelled", error: undefined });
       });
-    } catch {}
+    } catch (e) {
+      console.error("[downloads] model-download listener init failed", e);
+    }
   })();
 }
 
@@ -108,5 +110,7 @@ export async function downloadModel(id: string): Promise<void> {
 export async function cancelDownload(id: string): Promise<void> {
   try {
     await invoke("cancel_download", { id });
-  } catch {}
+  } catch (e) {
+    console.error("[downloads] cancel_download failed", e);
+  }
 }

@@ -176,7 +176,8 @@ async function runSync(): Promise<void> {
   let settings: Settings;
   try {
     settings = await invoke<Settings>("get_settings");
-  } catch {
+  } catch (e) {
+    console.error("[shortcuts] get_settings failed", e);
     return;
   }
 
@@ -213,7 +214,9 @@ async function runSync(): Promise<void> {
   for (const accel of stale) {
     try {
       if (await isRegistered(accel)) await unregister(accel);
-    } catch {}
+    } catch (e) {
+      console.error("[shortcuts] unregister failed", e);
+    }
     live.delete(accel);
   }
 
@@ -272,13 +275,17 @@ export function initShortcutEngine(): void {
   let label = "main";
   try {
     label = getCurrentWindow().label;
-  } catch {}
+  } catch {
+    // no Tauri window context (tests/SSR); default label stands
+  }
   if (label !== "main") return;
   initialized = true;
   void (async () => {
     try {
       await listen("settings-changed", scheduleResync);
-    } catch {}
+    } catch (e) {
+      console.error("[shortcuts] settings-changed listener failed", e);
+    }
   })();
   onHoldEnd((kind) => {
     if (armed && armed.trigger === "hold" && holdKindFor(armed.action) === kind) disarmShortcut();

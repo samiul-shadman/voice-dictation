@@ -621,7 +621,10 @@ fn with_inner<T>(app: &AppHandle, f: impl FnOnce(&mut RecorderInner) -> T) -> T 
         let _ = app.manage(RecorderState::default());
     }
     let state = app.state::<RecorderState>();
-    let mut inner = state.0.lock().expect("recorder state lock poisoned");
+    let mut inner = state
+        .0
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     f(&mut inner)
 }
 

@@ -22,7 +22,9 @@ export function RecordingIndicatorPage() {
     void (async () => {
       try {
         await emitTo("main", "overlay-ready", { label: "recording-indicator" });
-      } catch {}
+      } catch {
+        // best-effort handshake; main may not be listening yet
+      }
     })();
   }, []);
 
@@ -39,7 +41,9 @@ export function RecordingIndicatorPage() {
         });
         if (disposed) fn();
         else unlisten = fn;
-      } catch {}
+      } catch (e) {
+        console.error("[recording-indicator] indicator-style-changed listener failed", e);
+      }
     })();
     return () => {
       disposed = true;

@@ -69,7 +69,9 @@ export function ensureInit(): void {
           for (const fn of errorListeners) fn(payload);
         }
       });
-    } catch {}
+    } catch (e) {
+      console.error("[transcriber] transcribe listener init failed", e);
+    }
   })();
 }
 

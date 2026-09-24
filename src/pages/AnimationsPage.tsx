@@ -28,7 +28,9 @@ function readStoredTab(): Tab {
 function storeTab(tab: Tab): void {
   try {
     localStorage.setItem(TAB_STORAGE_KEY, tab);
-  } catch {}
+  } catch {
+    // localStorage unavailable (private mode); tab preference is non-essential
+  }
 }
 
 function renderPreview(

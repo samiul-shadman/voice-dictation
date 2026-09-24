@@ -50,11 +50,15 @@ export function ensureInit(): void {
       await listen<{ recording: boolean; stopping: boolean }>("recording-state", (e) => {
         setState({ recording: e.payload.recording, stopping: e.payload.stopping });
       });
-    } catch {}
+    } catch (e) {
+      console.error("[recorder] recording-state listener failed", e);
+    }
     try {
       const remote = await invoke<{ recording: boolean; stopping: boolean }>("recording_state");
       setState({ recording: remote.recording, stopping: remote.stopping });
-    } catch {}
+    } catch (e) {
+      console.error("[recorder] recording_state seed failed", e);
+    }
   })();
 }
 
