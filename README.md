@@ -64,6 +64,21 @@ cd src-tauri && cargo test
 bunx vitest run
 ```
 
+## Releasing
+
+Releases are cut from a tag:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+The `release.yml` workflow builds the Linux `.deb` and `.AppImage` and attaches
+both to a GitHub release (notes are generated from the commits). A version bump
+must keep three files in sync — `src-tauri/tauri.conf.json`,
+`src-tauri/Cargo.toml`, and `package.json` — and add an entry to
+[`CHANGELOG.md`](./CHANGELOG.md).
+
 ## Architecture (short version)
 
 - **3 webviews, 1 bundle**: `main` (the app), `indicator` + `recording-indicator`

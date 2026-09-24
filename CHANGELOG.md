@@ -1,0 +1,24 @@
+# Changelog
+
+All notable changes to this project are documented here. The format is based on
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
+adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+## [0.1.0] - 2026-09-25
+
+### Added
+
+- First public Linux release — `.deb` and `.AppImage`.
+- Hold or toggle a global hotkey, speak, and get the transcript pasted into the
+  focused app. Transcription runs entirely locally with NVIDIA Parakeet
+  (int8 ONNX via sherpa-onnx).
+- English and multilingual model catalog with background download, cancel,
+  delete, and integrity validation.
+- Audio library with transcript sidecars, exclusive playback, and safe delete.
+- Click-through overlay pills (10 recording + 10 transcription styles) and a
+  selectable indicator surface: floating pill, panel/tray icon, or both.
+
+[Unreleased]: https://github.com/samiul-shadman/voice-dictation/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/samiul-shadman/voice-dictation/releases/tag/v0.1.0
