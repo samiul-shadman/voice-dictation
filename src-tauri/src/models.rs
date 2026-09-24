@@ -6,7 +6,6 @@ use tauri::Manager;
 
 pub const DECODER_FILE: &str = "decoder.int8.onnx";
 const PATCHED_MANIFEST: &str = "patched.json";
-const PATCH_SIZE_TOLERANCE: u64 = 2048;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -18,6 +17,7 @@ pub struct ModelInfo {
     pub total_size_bytes: u64,
     pub downloaded: bool,
     pub downloading: bool,
+    pub cancelling: bool,
     pub download_error: Option<String>,
     pub is_default: bool,
 }
@@ -306,9 +306,7 @@ pub(crate) fn patch_parakeet_decoder(decoder_path: &Path) -> Result<u64, String>
         return Ok(bytes.len() as u64);
     }
     let mut patched = bytes.clone();
-    if !entries.iter().any(|(k, _)| k == "vocab_size") {
-        patched.extend_from_slice(&build_metadata_field("vocab_size", &vocab_size.to_string()));
-    }
+    patched.extend_from_slice(&build_metadata_field("vocab_size", &vocab_size.to_string()));
     if !entries.iter().any(|(k, _)| k == "context_size") {
         patched.extend_from_slice(&build_metadata_field("context_size", "2"));
     }
@@ -323,13 +321,10 @@ pub(crate) fn patch_parakeet_decoder(decoder_path: &Path) -> Result<u64, String>
 }
 
 fn size_accepted(actual: u64, file: &ModelFile, manifest: &Option<BTreeMap<String, u64>>) -> bool {
-    if let Some(patched) = manifest.as_ref().and_then(|m| m.get(file.name)) {
-        return actual == *patched;
+    match manifest.as_ref().and_then(|m| m.get(file.name)) {
+        Some(patched) => actual == *patched,
+        None => actual == file.size_bytes,
     }
-    if actual == file.size_bytes {
-        return true;
-    }
-    file.name == DECODER_FILE && actual.abs_diff(file.size_bytes) <= PATCH_SIZE_TOLERANCE
 }
 
 fn check_file(
@@ -438,6 +433,7 @@ pub fn list_models(app: tauri::AppHandle) -> Vec<ModelInfo> {
             total_size_bytes: spec.files.iter().map(|f| f.size_bytes).sum(),
             downloaded: is_downloaded(&models_dir, spec.id),
             downloading: crate::downloader::is_downloading(spec.id),
+            cancelling: crate::downloader::is_cancelling(spec.id),
             download_error: crate::downloader::error_of(spec.id),
             is_default: default_id == spec.id,
         })
@@ -468,6 +464,7 @@ pub fn delete_model(app: tauri::AppHandle, id: String) -> Result<(), String> {
     if dir.exists() {
         fs::remove_dir_all(&dir).map_err(|e| format!("could not delete the model: {e}"))?;
     }
+    crate::transcriber::evict_engine_cache(&id);
     Ok(())
 }
 
@@ -510,7 +507,9 @@ pub fn set_models_dir(app: tauri::AppHandle, dir: Option<String>) -> Result<(), 
     crate::settings::update_settings(&app, move |s| {
         s.models_dir = value;
         Ok(())
-    })
+    })?;
+    crate::transcriber::evict_all_engines();
+    Ok(())
 }
 
 #[tauri::command]
@@ -597,17 +596,17 @@ mod tests {
     }
 
     #[test]
-    fn verify_dir_decoder_tolerance_only_without_manifest() {
+    fn verify_dir_requires_exact_decoder_size_without_manifest() {
         let dir = tempfile::tempdir().unwrap();
         let spec = test_spec();
         write_model_files(dir.path(), &spec, [10, 8 + 30, 6, 4]);
-        assert!(verify_dir_with(dir.path(), &spec).is_ok());
-        fs::write(dir.path().join(DECODER_FILE), vec![0u8; 8 + 5000]).unwrap();
-        assert!(verify_dir_with(dir.path(), &spec).is_err());
+        let err = verify_dir_with(dir.path(), &spec)
+            .expect_err("without a manifest only the exact pinned size is accepted");
+        assert!(err.contains("re-download"), "got: {err}");
     }
 
     #[test]
-    fn verify_dir_decoder_tolerance_does_not_apply_to_other_files() {
+    fn verify_dir_rejects_wrong_encoder_size() {
         let dir = tempfile::tempdir().unwrap();
         let spec = test_spec();
         write_model_files(dir.path(), &spec, [10 + 30, 8, 6, 4]);

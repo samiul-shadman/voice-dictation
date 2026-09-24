@@ -44,6 +44,15 @@ export async function loadEnvInfo(): Promise<void> {
   }
 }
 
+export async function recheckEnvInfo(): Promise<void> {
+  try {
+    const info = await invoke<EnvInfo>("recheck_environment");
+    setState(info);
+  } catch {
+    // keep the last known environment when a recheck fails
+  }
+}
+
 export function ensureInit(): void {
   if (initialized) return;
   initialized = true;

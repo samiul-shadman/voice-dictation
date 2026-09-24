@@ -24,7 +24,7 @@ import {
   useSettings,
 } from "../lib/stores/settings";
 import type { IndicatorMode, PasteMode } from "../lib/stores/settings";
-import { useEnvInfo, isLinux, isMac } from "../lib/stores/env";
+import { useEnvInfo, isLinux, isMac, recheckEnvInfo } from "../lib/stores/env";
 import type { EnvInfo, SessionType } from "../lib/stores/env";
 
 type PkgManager = "apt" | "dnf" | "pacman";
@@ -377,6 +377,10 @@ export function SettingsPage() {
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  useEffect(() => {
+    void recheckEnvInfo();
   }, []);
 
   useEffect(() => {

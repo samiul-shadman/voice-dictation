@@ -1,11 +1,12 @@
 use crate::audiodecode;
 use crate::settings::{validate_audio_format, with_settings};
 use serde::Serialize;
-use std::fs::{self, File};
+use std::fs::{self, File, OpenOptions};
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::mpsc::{self, RecvTimeoutError};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager};
 
@@ -18,6 +19,8 @@ use shine_rs::{Mp3Encoder, Mp3EncoderConfig, StereoMode};
 
 const LEVEL_THROTTLE_MS: u64 = 50;
 const CAPTURE_TIMEOUT: Option<Duration> = Some(Duration::from_secs(2));
+const ENCODER_FINALIZE_TIMEOUT: Duration = Duration::from_secs(20);
+const COMMAND_FINALIZE_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -91,7 +94,7 @@ pub fn start_recording(app: tauri::AppHandle, format: Option<String>) -> Result<
     })?;
     let dir = with_settings(&app, |s| PathBuf::from(s.audio_dir.clone()));
     fs::create_dir_all(&dir).map_err(|e| format!("could not create recordings folder: {e}"))?;
-    let path = next_recording_path(&dir, &format);
+    let path = reserve_recording_path(&dir, &format)?;
 
     let host = cpal::default_host();
     let device = host
@@ -167,6 +170,7 @@ pub fn start_recording(app: tauri::AppHandle, format: Option<String>) -> Result<
             if let Some(recording) = slot.take() {
                 drop(recording.stream);
                 drop(recording.chunk_tx);
+                let _ = recording.done_rx.recv_timeout(ENCODER_FINALIZE_TIMEOUT);
             }
             let _ = fs::remove_file(&path);
             Err(e)
@@ -178,18 +182,28 @@ pub fn start_recording(app: tauri::AppHandle, format: Option<String>) -> Result<
 pub fn stop_recording(app: tauri::AppHandle) -> Result<RecordingMeta, String> {
     let recording = begin_stopping(&app)?;
     let receiver = run_detached_finish(move || finish_stop(app, recording));
-    receiver
-        .recv()
-        .map_err(|_| "recording could not be finalized".to_string())?
+    match receiver.recv_timeout(COMMAND_FINALIZE_TIMEOUT) {
+        Ok(result) => result,
+        Err(RecvTimeoutError::Timeout) => {
+            Err("the recording took too long to finalize — try again".to_string())
+        }
+        Err(RecvTimeoutError::Disconnected) => {
+            Err("recording could not be finalized".to_string())
+        }
+    }
 }
 
 #[tauri::command(async)]
 pub fn cancel_recording(app: tauri::AppHandle) -> Result<(), String> {
     let recording = begin_stopping(&app)?;
     let receiver = run_detached_finish(move || finish_cancel(app, recording));
-    receiver
-        .recv()
-        .map_err(|_| "recording could not be discarded".to_string())?
+    match receiver.recv_timeout(COMMAND_FINALIZE_TIMEOUT) {
+        Ok(result) => result,
+        Err(RecvTimeoutError::Timeout) => {
+            Err("the recording took too long to discard — try again".to_string())
+        }
+        Err(RecvTimeoutError::Disconnected) => Err("recording could not be discarded".to_string()),
+    }
 }
 
 #[tauri::command]
@@ -651,10 +665,15 @@ fn finish_stop(app: AppHandle, recording: Recording) -> Result<RecordingMeta, St
         .filter(|d| d.is_finite());
     drop(recording.stream);
     drop(recording.chunk_tx);
-    let result = recording
-        .done_rx
-        .recv()
-        .unwrap_or_else(|_| Err("recording could not be finalized".to_string()));
+    let result = match recording.done_rx.recv_timeout(ENCODER_FINALIZE_TIMEOUT) {
+        Ok(outcome) => outcome,
+        Err(RecvTimeoutError::Timeout) => {
+            Err("the recording took too long to finalize — the file may be incomplete".to_string())
+        }
+        Err(RecvTimeoutError::Disconnected) => {
+            Err("recording could not be finalized".to_string())
+        }
+    };
     clear_stopping(&app);
     match result {
         Ok(written) => {
@@ -674,7 +693,7 @@ fn finish_stop(app: AppHandle, recording: Recording) -> Result<RecordingMeta, St
 fn finish_cancel(app: AppHandle, recording: Recording) -> Result<(), String> {
     drop(recording.stream);
     drop(recording.chunk_tx);
-    let _ = recording.done_rx.recv();
+    let _ = recording.done_rx.recv_timeout(ENCODER_FINALIZE_TIMEOUT);
     let _ = fs::remove_file(&recording.path);
     clear_stopping(&app);
     Ok(())
@@ -707,14 +726,17 @@ fn build_meta(path: &Path, format: &str, duration_secs: Option<f64>) -> Recordin
     }
 }
 
-fn next_recording_path(dir: &Path, format: &str) -> PathBuf {
+fn reserve_recording_path(dir: &Path, format: &str) -> Result<PathBuf, String> {
     let mut ms = unix_millis_now();
-    let mut path = dir.join(format!("recording-{ms}.{format}"));
-    while path.exists() {
-        ms += 1;
-        path = dir.join(format!("recording-{ms}.{format}"));
+    for _ in 0..10_000 {
+        let path = dir.join(format!("recording-{ms}.{format}"));
+        match OpenOptions::new().write(true).create_new(true).open(&path) {
+            Ok(_) => return Ok(path),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => ms += 1,
+            Err(e) => return Err(format!("could not create the recording file: {e}")),
+        }
     }
-    path
+    Err("could not find a free recording name".to_string())
 }
 
 fn unix_millis_now() -> u64 {
@@ -854,18 +876,17 @@ mod tests {
     }
 
     #[test]
-    fn recording_paths_use_unix_ms_names_without_collisions() {
+    fn reserve_recording_path_is_atomic_and_avoids_collisions() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let path = next_recording_path(dir.path(), "mp3");
+        let path = reserve_recording_path(dir.path(), "mp3").expect("reserve");
         let name = path
             .file_name()
             .expect("name")
             .to_string_lossy()
             .into_owned();
         assert!(name.starts_with("recording-") && name.ends_with(".mp3"));
-        assert!(name != "recording-.mp3");
-        fs::write(&path, b"").expect("write");
-        let second = next_recording_path(dir.path(), "mp3");
+        assert!(path.exists(), "reservation must create the file");
+        let second = reserve_recording_path(dir.path(), "mp3").expect("reserve second");
         assert_ne!(path, second);
         assert_eq!(second.extension().and_then(|e| e.to_str()), Some("mp3"));
     }

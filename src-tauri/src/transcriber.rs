@@ -50,6 +50,7 @@ fn estimated_percent(elapsed_ms: u128, estimated_total_ms: u64) -> f64 {
 }
 
 #[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct TranscribeCompleteEvent {
     path: String,
     text: String,
@@ -133,6 +134,24 @@ fn with_engine<T>(
     }
     let engine = &mut guard.as_mut().expect("engine cache populated").1;
     Ok(transcribe(engine))
+}
+
+pub(crate) fn evict_engine_cache(model_id: &str) {
+    let mut guard = match ENGINE_CACHE.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    if guard.as_ref().is_some_and(|(id, _)| id == model_id) {
+        *guard = None;
+    }
+}
+
+pub(crate) fn evict_all_engines() {
+    let mut guard = match ENGINE_CACHE.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    *guard = None;
 }
 
 fn load_pcm16k_mono(input: &Path) -> Result<(Vec<f32>, u64), String> {
@@ -302,6 +321,27 @@ mod tests {
         let json = serde_json::to_value(&event).unwrap();
         assert_eq!(json["path"], "/recordings/clip.wav");
         assert_eq!(json["percent"], 0.0);
+    }
+
+    #[test]
+    fn complete_event_serializes_camel_case_fields() {
+        let event = TranscribeCompleteEvent {
+            path: "/recordings/clip.wav".to_string(),
+            text: "hello".to_string(),
+            model_id: "parakeet-v2-en".to_string(),
+            duration_ms: 42,
+            auto_paste: true,
+            paste_error: Some("no display".to_string()),
+        };
+        let json = serde_json::to_value(&event).unwrap();
+        assert_eq!(json["modelId"], "parakeet-v2-en");
+        assert_eq!(json["durationMs"], 42);
+        assert_eq!(json["autoPaste"], true);
+        assert_eq!(json["pasteError"], "no display");
+        assert!(json.get("model_id").is_none());
+        assert!(json.get("duration_ms").is_none());
+        assert!(json.get("auto_paste").is_none());
+        assert!(json.get("paste_error").is_none());
     }
 
     #[test]

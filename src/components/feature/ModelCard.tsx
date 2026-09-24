@@ -11,6 +11,7 @@ export interface ModelInfo {
   totalSizeBytes: number;
   downloaded: boolean;
   downloading: boolean;
+  cancelling: boolean;
   downloadError: string | null;
   isDefault: boolean;
 }
@@ -35,6 +36,7 @@ export default function ModelCard({
   busy,
 }: ModelCardProps) {
   const downloading = model.downloading || download?.state === "active";
+  const cancelling = model.cancelling;
   const downloaded = model.downloaded || download?.state === "done";
   const errorText =
     download?.state === "error"
@@ -45,7 +47,11 @@ export default function ModelCard({
 
   let status;
   if (downloading) {
-    status = <span className="font-mono text-xs tabular-nums text-text-2">Downloading… {percent}%</span>;
+    status = cancelling ? (
+      <span className="font-mono text-xs tabular-nums text-text-2">Cancelling…</span>
+    ) : (
+      <span className="font-mono text-xs tabular-nums text-text-2">Downloading… {percent}%</span>
+    );
   } else if (failed) {
     status = <span className="text-xs font-medium text-err">{errorText}</span>;
   } else if (downloaded) {
@@ -98,7 +104,7 @@ export default function ModelCard({
         {downloading && <Progress value={percent} />}
         <div className="mt-1 flex items-center gap-2">
           {downloading ? (
-            <Button variant="danger" size="sm" loading={busy} onClick={() => onCancel(model.id)}>
+            <Button variant="danger" size="sm" loading={busy || cancelling} onClick={() => onCancel(model.id)}>
               Cancel
             </Button>
           ) : (

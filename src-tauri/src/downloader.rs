@@ -12,6 +12,7 @@ use tauri::{AppHandle, Emitter};
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 const READ_IDLE_TIMEOUT: Duration = Duration::from_secs(60);
+const JOIN_GRACE: Duration = Duration::from_secs(5);
 const READ_CHUNK: usize = 64 * 1024;
 const PROGRESS_MIN_BYTES: u64 = 2 * 1024 * 1024;
 const PROGRESS_MIN_PERCENT: f64 = 5.0;
@@ -144,10 +145,16 @@ fn record_error(id: &str, message: &str) {
 
 pub(crate) fn request_cancel(id: &str) -> Result<(), String> {
     let spec = crate::models::find_spec(id).ok_or_else(|| format!("unknown model id: {id}"))?;
-    if let Some(active) = lock_downloads().remove(spec.id) {
+    if let Some(active) = lock_downloads().get(spec.id) {
         active.cancel.store(true, Ordering::Relaxed);
     }
     Ok(())
+}
+
+pub(crate) fn is_cancelling(id: &str) -> bool {
+    lock_downloads()
+        .get(id)
+        .is_some_and(|active| active.cancel.load(Ordering::Relaxed))
 }
 
 fn finish_download(id: &str, my_cancel: &Arc<AtomicBool>) {
@@ -242,8 +249,10 @@ fn run_download(app: AppHandle, id: String, cancel: Arc<AtomicBool>) -> Download
     }
     let decoder_path = dir.join(crate::models::DECODER_FILE);
     if let Err(e) = crate::models::patch_parakeet_decoder(&decoder_path) {
-        eprintln!("could not patch {}: {e}", decoder_path.display());
         crate::models::remove_patched_manifest(&dir);
+        return DownloadOutcome::Failed(format!(
+            "the decoder could not be prepared for the engine ({e}) — retry the download"
+        ));
     }
     DownloadOutcome::Completed
 }
@@ -313,44 +322,63 @@ fn fetch_with_idle_timeout<R: Read + Send + 'static>(
 ) -> DownloadOutcome {
     let part = part.to_path_buf();
     let (progress_tx, progress_rx) = mpsc::channel::<()>();
+    let (done_tx, done_rx) = mpsc::channel::<DownloadOutcome>();
     let cancel_for_thread = cancel.clone();
     let part_for_thread = part.clone();
     let handle = std::thread::spawn(move || {
-        fetch_loop(reader, &part_for_thread, &cancel_for_thread, move |downloaded| {
+        let outcome = fetch_loop(reader, &part_for_thread, &cancel_for_thread, move |downloaded| {
             let _ = progress_tx.send(());
             on_progress(downloaded)
-        })
+        });
+        let _ = done_tx.send(outcome);
     });
     let mut last_progress = Instant::now();
+    let mut forced: Option<DownloadOutcome> = None;
     loop {
         match progress_rx.recv_timeout(Duration::from_secs(1)) {
             Ok(()) => {
                 last_progress = Instant::now();
                 if cancel.load(Ordering::Relaxed) {
-                    let _ = fs::remove_file(&part);
-                    return DownloadOutcome::Cancelled;
+                    forced = Some(DownloadOutcome::Cancelled);
+                    break;
                 }
             }
             Err(RecvTimeoutError::Timeout) => {
                 if cancel.load(Ordering::Relaxed) {
-                    let _ = fs::remove_file(&part);
-                    return DownloadOutcome::Cancelled;
+                    forced = Some(DownloadOutcome::Cancelled);
+                    break;
                 }
                 if last_progress.elapsed() >= READ_IDLE_TIMEOUT {
-                    let _ = fs::remove_file(&part);
-                    return DownloadOutcome::Failed(
+                    forced = Some(DownloadOutcome::Failed(
                         "download stalled — no data for 60 s — retry the download".to_string(),
-                    );
+                    ));
+                    break;
                 }
             }
-            Err(RecvTimeoutError::Disconnected) => {
-                return handle.join().unwrap_or_else(|_| {
-                    DownloadOutcome::Failed(
-                        "download failed unexpectedly — retry the download".to_string(),
-                    )
-                });
-            }
+            Err(RecvTimeoutError::Disconnected) => break,
         }
+    }
+    if forced.is_some() {
+        cancel.store(true, Ordering::Relaxed);
+        let _ = fs::remove_file(&part);
+    }
+    // Wait for the reader to notice the flag and exit so its socket and thread do
+    // not leak. A silently-alive peer can block `read` past the grace period; in
+    // that case detach and let the active entry stay until the thread ends.
+    match done_rx.recv_timeout(JOIN_GRACE) {
+        Ok(outcome) => {
+            let _ = handle.join();
+            forced.unwrap_or(outcome)
+        }
+        Err(RecvTimeoutError::Disconnected) => {
+            let _ = handle.join();
+            forced.unwrap_or_else(|| {
+                DownloadOutcome::Failed("download failed unexpectedly — retry the download".to_string())
+            })
+        }
+        Err(RecvTimeoutError::Timeout) => forced.unwrap_or_else(|| {
+            DownloadOutcome::Failed("download stalled — retry the download".to_string())
+        }),
     }
 }
 
@@ -493,6 +521,55 @@ mod tests {
         assert!(matches!(outcome, DownloadOutcome::Completed));
         let written = fs::read(&part).unwrap();
         assert_eq!(written.len() as u64, total);
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn idle_timeout_coordinator_cancels_cleanly() {
+        let dir = tempfile::tempdir().unwrap();
+        let part = dir.path().join("coord.bin.part");
+        let total = 512 * 1024;
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let Ok((mut stream, _)) = listener.accept() else {
+                return;
+            };
+            let header = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {total}\r\nConnection: close\r\n\r\n"
+            );
+            if stream.write_all(header.as_bytes()).is_err() {
+                return;
+            }
+            let chunk = [0u8; 4096];
+            for _ in 0..(total / chunk.len() as u64) {
+                if stream.write_all(&chunk).is_err() {
+                    break;
+                }
+                thread::sleep(Duration::from_millis(2));
+            }
+        });
+
+        let stream = body_after_headers(TcpStream::connect(addr).unwrap());
+        let cancel = Arc::new(AtomicBool::new(false));
+        let cancel_for_thread = cancel.clone();
+        let part_for_thread = part.clone();
+        let handle = thread::spawn(move || {
+            fetch_with_idle_timeout(stream, &part_for_thread, cancel_for_thread, |_| {})
+        });
+        let mut in_flight = false;
+        for _ in 0..100 {
+            if part.exists() {
+                in_flight = true;
+                break;
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert!(in_flight, "download should be in flight");
+        cancel.store(true, Ordering::Relaxed);
+        let outcome = handle.join().unwrap();
+        assert!(matches!(outcome, DownloadOutcome::Cancelled));
+        assert!(!part.exists(), ".part must be removed after cancel");
         server.join().unwrap();
     }
 

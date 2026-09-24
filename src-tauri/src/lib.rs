@@ -39,6 +39,7 @@ pub fn run() {
             settings::set_indicator_mode,
             settings::get_settings_warning,
             sysinfo::detect_environment,
+            sysinfo::recheck_environment,
             recorder::start_recording,
             recorder::stop_recording,
             recorder::cancel_recording,

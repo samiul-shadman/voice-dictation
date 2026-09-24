@@ -1,11 +1,13 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import type { ReactNode } from "react";
 import { HashRouter, Navigate, NavLink, Route, Routes, useNavigate } from "react-router-dom";
 import { Cpu, Keyboard, LibraryBig, Mic, Settings as SettingsIcon, Wand } from "lucide-react";
-import { ToastViewport } from "./components/ui";
+import { ToastViewport, toast } from "./components/ui";
 import { OverlaySync } from "./lib/OverlaySync";
 import { initShortcutEngine } from "./lib/shortcuts/engine";
 import { useEnvInfo, isMac } from "./lib/stores/env";
+import { useRecording } from "./lib/stores/recorder";
+import { ensureInit, onTranscribeComplete, onTranscribeError } from "./lib/stores/transcriber";
 import { AnimationsPage } from "./pages/AnimationsPage";
 import { IndicatorPage } from "./pages/IndicatorPage";
 import { LibraryPage } from "./pages/LibraryPage";
@@ -106,6 +108,47 @@ function Sidebar() {
   );
 }
 
+function OutcomeToasts() {
+  const recorder = useRecording();
+  const lastError = useRef<string | null>(null);
+
+  useEffect(() => {
+    ensureInit();
+  }, []);
+
+  useEffect(() => {
+    if (!recorder.lastError) {
+      lastError.current = null;
+      return;
+    }
+    if (lastError.current === recorder.lastError) return;
+    lastError.current = recorder.lastError;
+    toast("error", recorder.lastError);
+  }, [recorder.lastError]);
+
+  useEffect(
+    () =>
+      onTranscribeComplete((payload) => {
+        if (payload.pasteError) {
+          toast("error", "Could not paste automatically — the transcript is on your clipboard.", {
+            durationMs: 6000,
+          });
+        }
+      }),
+    [],
+  );
+
+  useEffect(
+    () =>
+      onTranscribeError((payload) => {
+        toast("error", `Transcription failed — ${payload.message}`);
+      }),
+    [],
+  );
+
+  return null;
+}
+
 function MainShell() {
   useEffect(() => {
     initShortcutEngine();
@@ -130,6 +173,7 @@ function MainShell() {
         </main>
       </div>
       <ToastViewport />
+      <OutcomeToasts />
       <OverlaySync />
     </HashRouter>
   );

@@ -19,8 +19,20 @@ pub struct EnvInfo {
 pub struct EnvState(Mutex<EnvInfo>);
 
 pub fn detect_and_cache(app: &AppHandle) {
-    let info = detect();
+    let info = detect_fast();
     app.manage(EnvState(Mutex::new(info)));
+}
+
+fn cache_env(app: &AppHandle, info: &EnvInfo) {
+    match app.try_state::<EnvState>() {
+        Some(state) => match state.0.lock() {
+            Ok(mut guard) => *guard = info.clone(),
+            Err(poisoned) => *poisoned.into_inner() = info.clone(),
+        },
+        None => {
+            app.manage(EnvState(Mutex::new(info.clone())));
+        }
+    }
 }
 
 pub fn cached_env(app: &AppHandle) -> EnvInfo {
@@ -39,6 +51,25 @@ pub fn cached_env(app: &AppHandle) -> EnvInfo {
 #[tauri::command]
 pub fn detect_environment(app: AppHandle) -> EnvInfo {
     cached_env(&app)
+}
+
+#[tauri::command]
+pub fn recheck_environment(app: AppHandle) -> EnvInfo {
+    let info = detect();
+    cache_env(&app, &info);
+    info
+}
+
+/// Startup probe — deliberately skips the `wtype --help` spawn (see P1.9); the
+/// Settings → Environment page triggers the full `recheck_environment`.
+fn detect_fast() -> EnvInfo {
+    EnvInfo {
+        platform: std::env::consts::OS.to_string(),
+        mic_available: mic_available(),
+        accessibility_permission: accessibility_permission(),
+        session_type: detect_session_type(),
+        wtype: None,
+    }
 }
 
 pub fn detect() -> EnvInfo {
