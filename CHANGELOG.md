@@ -6,6 +6,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-09-25
+
+### Fixed
+
+- AppImage bundling in CI — `linuxdeploy` needs `patchelf` on the runner.
+
 ## [0.1.0] - 2026-09-25
 
 ### Added
@@ -20,5 +26,6 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Click-through overlay pills (10 recording + 10 transcription styles) and a
   selectable indicator surface: floating pill, panel/tray icon, or both.
 
-[Unreleased]: https://github.com/samiul-shadman/voice-dictation/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/samiul-shadman/voice-dictation/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/samiul-shadman/voice-dictation/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/samiul-shadman/voice-dictation/releases/tag/v0.1.0
