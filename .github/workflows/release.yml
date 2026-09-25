@@ -23,6 +23,16 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
+      - name: Restore sherpa-onnx prebuilt binaries
+        id: sherpa-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/sherpa-rs
+          key: sherpa-rs-${{ runner.os }}-v1
+      - name: Force sherpa-rs-sys rebuild when the native cache is missing
+        if: steps.sherpa-cache.outputs.cache-hit != 'true'
+        working-directory: src-tauri
+        run: cargo clean -p sherpa-rs-sys
       - name: Build bundles
         run: bunx tauri build
       - name: Upload bundles
