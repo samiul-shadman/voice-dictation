@@ -34,6 +34,8 @@ jobs:
         working-directory: src-tauri
         run: cargo clean -p sherpa-rs-sys
       - name: Build bundles
+        env:
+          LD_LIBRARY_PATH: ${{ github.workspace }}/src-tauri/target/release/deps
         run: bunx tauri build
       - name: Upload bundles
         uses: actions/upload-artifact@v4

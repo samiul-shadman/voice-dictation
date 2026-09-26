@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "tauri:dev": "WEBKIT_DISABLE_DMABUF_RENDERER=1 tauri dev",
-    "tauri:build": "WEBKIT_DISABLE_DMABUF_RENDERER=1 tauri build"
+    "tauri:build": "WEBKIT_DISABLE_DMABUF_RENDERER=1 LD_LIBRARY_PATH=src-tauri/target/release/deps:src-tauri/target/debug/deps tauri build"
   },
   "dependencies": {
     "@fontsource/inter": "^5.3.0",

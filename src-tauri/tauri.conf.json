@@ -44,7 +44,11 @@
           "libwebkit2gtk-4.1-0",
           "libgtk-3-0",
           "libayatana-appindicator3-1"
-        ]
+        ],
+        "files": {
+          "/usr/lib/voice-dictation/libsherpa-onnx-c-api.so": "target/release/deps/libsherpa-onnx-c-api.so",
+          "/usr/lib/voice-dictation/libonnxruntime.so": "target/release/deps/libonnxruntime.so"
+        }
       }
     }
   }

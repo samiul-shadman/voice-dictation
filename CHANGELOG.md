@@ -10,7 +10,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
-- AppImage bundling in CI — `linuxdeploy` needs `patchelf` on the runner.
+- Linux bundles now ship the sherpa-onnx shared libraries: the `.deb` installs
+  them under `/usr/lib/voice-dictation` (and the binary gains an RPATH to match),
+  and the AppImage bundles them, so the app launches without a system-wide
+  install. Adds the `patchelf` build dependency for the AppImage step.
 
 ## [0.1.0] - 2026-09-25
 
