@@ -6,7 +6,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-## [0.1.1] - 2026-09-25
+## [0.1.2] - 2026-09-25
 
 ### Fixed
 
@@ -29,6 +29,6 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Click-through overlay pills (10 recording + 10 transcription styles) and a
   selectable indicator surface: floating pill, panel/tray icon, or both.
 
-[Unreleased]: https://github.com/samiul-shadman/voice-dictation/compare/v0.1.1...HEAD
-[0.1.1]: https://github.com/samiul-shadman/voice-dictation/compare/v0.1.0...v0.1.1
+[Unreleased]: https://github.com/samiul-shadman/voice-dictation/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/samiul-shadman/voice-dictation/compare/v0.1.0...v0.1.2
 [0.1.0]: https://github.com/samiul-shadman/voice-dictation/releases/tag/v0.1.0
