@@ -6,6 +6,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-09-26
+
+### Fixed
+
+- Blank window when the packaged app is launched on Linux — the app now disables
+  WebKitGTK's DMA-BUF renderer at startup (it fails to allocate GBM buffers on
+  some X11/NVIDIA drivers), matching the dev-time workaround.
+
 ## [0.1.2] - 2026-09-25
 
 ### Fixed
@@ -29,6 +37,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Click-through overlay pills (10 recording + 10 transcription styles) and a
   selectable indicator surface: floating pill, panel/tray icon, or both.
 
-[Unreleased]: https://github.com/samiul-shadman/voice-dictation/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/samiul-shadman/voice-dictation/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/samiul-shadman/voice-dictation/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/samiul-shadman/voice-dictation/compare/v0.1.0...v0.1.2
 [0.1.0]: https://github.com/samiul-shadman/voice-dictation/releases/tag/v0.1.0

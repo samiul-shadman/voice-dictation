@@ -89,6 +89,10 @@ __docs/features/         v2 post-mortem distilled into feature lessons
     `confine_to_audio_dir` (extension allowlist + `is_path_within_dir` on the
     canonicalized path) and then operates on the returned canonical path. Check-then-use
     on two different values is CWE-367.
+11. **Linux packaged builds disable WebKitGTK's DMA-BUF renderer at startup**
+    (`lib.rs` sets `WEBKIT_DISABLE_DMABUF_RENDERER=1` when unset). It fails to
+    allocate GBM buffers on some X11/NVIDIA drivers and renders a blank window; the
+    dev script sets the same variable. Do not remove it.
 
 ## Conventions
 

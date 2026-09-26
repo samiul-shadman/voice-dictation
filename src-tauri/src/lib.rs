@@ -14,6 +14,14 @@ mod tray;
 use tauri::Manager;
 
 pub fn run() {
+    // WebKitGTK's DMA-BUF renderer fails to allocate GBM buffers on some X11
+    // drivers (seen with NVIDIA), which renders a blank window. The dev script
+    // disables it and packaged builds must do the same.
+    #[cfg(target_os = "linux")]
+    if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
+        std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+    }
+
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
