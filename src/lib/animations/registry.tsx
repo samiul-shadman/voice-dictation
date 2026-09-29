@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { LevelTrace } from "../../components/LevelTrace";
 import { fmtClock } from "../format";
 
 export interface RecordingStyleArgs {
@@ -445,6 +446,19 @@ const shimmer: RecordingStyleEntry = {
   ),
 };
 
+const levelTrace: RecordingStyleEntry = {
+  id: "level-trace",
+  name: "Level trace",
+  desc: "Rolling mic-level bar graph, newest sample on the right.",
+  render: ({ elapsed, level }) => (
+    <div className="flex items-center gap-2.5">
+      <span className="vd-rec-dot" aria-hidden />
+      <span className={MONO_CLS}>{fmtClock(elapsed)}</span>
+      <LevelTrace level={level} />
+    </div>
+  ),
+};
+
 const classicTranscription: TranscriptionStyleEntry = {
   id: "classic",
   name: "Classic",
@@ -678,6 +692,7 @@ export const recordingStyles: RecordingStyleEntry[] = [
   equalizer,
   sonar,
   shimmer,
+  levelTrace,
 ];
 
 export const transcriptionStyles: TranscriptionStyleEntry[] = [

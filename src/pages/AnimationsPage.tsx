@@ -38,9 +38,10 @@ function renderPreview(
   entry: RecordingStyleEntry | TranscriptionStyleEntry,
   mockElapsed: number,
   mockPercent: number,
+  mockLevel: number,
 ): ReactNode {
   if (tab === "recording") {
-    return (entry as RecordingStyleEntry).render({ elapsed: mockElapsed, level: 0.6 });
+    return (entry as RecordingStyleEntry).render({ elapsed: mockElapsed, level: mockLevel });
   }
   return (entry as TranscriptionStyleEntry).render({ percent: mockPercent });
 }
@@ -50,6 +51,7 @@ export function AnimationsPage() {
   const [tab, setTab] = useState<Tab>(readStoredTab);
   const [mockElapsed, setMockElapsed] = useState(0);
   const [mockPercent, setMockPercent] = useState(12);
+  const [mockLevel, setMockLevel] = useState(0.35);
 
   useEffect(() => {
     const clock = window.setInterval(() => setMockElapsed((e) => e + 0.5), 500);
@@ -64,6 +66,22 @@ export function AnimationsPage() {
       window.clearInterval(progress);
     };
   }, []);
+
+  useEffect(() => {
+    if (tab !== "recording") return;
+    let raf = 0;
+    let smoothed = 0.35;
+    let phase = 0;
+    const loop = () => {
+      phase += 0.06;
+      const target = Math.max(0, Math.min(1, 0.5 + 0.3 * Math.sin(phase) + 0.18 * Math.sin(phase * 2.7)));
+      smoothed = smoothed * 0.8 + target * 0.2;
+      setMockLevel(smoothed);
+      raf = window.requestAnimationFrame(loop);
+    };
+    raf = window.requestAnimationFrame(loop);
+    return () => window.cancelAnimationFrame(raf);
+  }, [tab]);
 
   const handleTab = (next: Tab): void => {
     setTab(next);
@@ -113,7 +131,7 @@ export function AnimationsPage() {
                 className="flex h-16 items-center justify-center overflow-hidden rounded-md border border-border bg-surface-2 px-3"
                 style={tab === "recording" ? PREVIEW_LEVEL : undefined}
               >
-                {renderPreview(tab, entry, mockElapsed, mockPercent)}
+                {renderPreview(tab, entry, mockElapsed, mockPercent, mockLevel)}
               </div>
               <div className="flex items-center justify-between gap-2">
                 <h2 className="text-[14px] font-medium text-text">{entry.name}</h2>

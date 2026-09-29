@@ -16,9 +16,9 @@ describe("animations registry", () => {
     expect(getTranscriptionStyle("does-not-exist").id).toBe("classic");
   });
 
-  it("lists 10 unique recording styles", () => {
-    expect(recordingStyles).toHaveLength(10);
-    expect(new Set(recordingStyles.map((s) => s.id)).size).toBe(10);
+  it("lists 11 unique recording styles", () => {
+    expect(recordingStyles).toHaveLength(11);
+    expect(new Set(recordingStyles.map((s) => s.id)).size).toBe(11);
   });
 
   it("lists 10 unique transcription styles", () => {

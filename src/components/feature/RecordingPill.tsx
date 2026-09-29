@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { getRecordingStyle, getTranscriptionStyle } from "../../lib/animations/registry";
-import { getLevel } from "../../lib/stores/levels";
+import { getLevel, useLevel } from "../../lib/stores/levels";
 import { useRecording } from "../../lib/stores/recorder";
 import { useIndicatorStyles } from "../../lib/stores/settings";
 import { useTranscriber } from "../../lib/stores/transcriber";
@@ -15,6 +15,7 @@ export default function RecordingPill({ recordingStyleId, transcriptionStyleId }
   const recorder = useRecording();
   const transcriber = useTranscriber();
   const styles = useIndicatorStyles();
+  const level = useLevel();
 
   const rootRef = useRef<HTMLDivElement | null>(null);
   const prevRecordingRef = useRef(false);
@@ -74,10 +75,10 @@ export default function RecordingPill({ recordingStyleId, transcriptionStyleId }
     <div
       ref={rootRef}
       className="glass-pill pop-in flex items-center px-4 py-2.5"
-      style={{ "--voice-level": getLevel() } as CSSProperties}
+      style={{ "--voice-level": level } as CSSProperties}
     >
       {phase === "recording"
-        ? getRecordingStyle(recordingId).render({ elapsed, level: getLevel() })
+        ? getRecordingStyle(recordingId).render({ elapsed, level })
         : getTranscriptionStyle(transcriptionId).render({ percent: transcriber.percent })}
     </div>
   );
