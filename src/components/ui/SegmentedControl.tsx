@@ -9,6 +9,7 @@ export interface SegmentedControlProps<T extends string> {
   onChange: (value: T) => void;
   ariaLabel?: string;
   className?: string;
+  accentActive?: boolean;
 }
 
 export function SegmentedControl<T extends string>({
@@ -17,6 +18,7 @@ export function SegmentedControl<T extends string>({
   onChange,
   ariaLabel,
   className = "",
+  accentActive = false,
 }: SegmentedControlProps<T>) {
   const activeIndex = Math.max(
     0,
@@ -30,7 +32,9 @@ export function SegmentedControl<T extends string>({
     >
       <span
         aria-hidden
-        className="absolute inset-y-1 left-1 rounded-[8px] bg-surface-2 shadow-rest transition-transform duration-[160ms] ease-[cubic-bezier(0.2,0.8,0.2,1)]"
+        className={`absolute inset-y-1 left-1 rounded-[8px] shadow-rest transition-transform duration-[160ms] ease-[cubic-bezier(0.2,0.8,0.2,1)] ${
+          accentActive ? "bg-accent-soft ring-1 ring-accent/40" : "bg-surface-2"
+        }`}
         style={{
           width: `calc((100% - 8px) / ${Math.max(1, options.length)})`,
           transform: `translateX(${activeIndex * 100}%)`,
@@ -46,7 +50,11 @@ export function SegmentedControl<T extends string>({
             aria-checked={active}
             onClick={() => onChange(option.value)}
             className={`relative z-10 h-7 flex-1 rounded-[8px] text-[13px] font-medium transition-colors duration-150 ${
-              active ? "text-text" : "text-text-2 hover:text-text"
+              active
+                ? accentActive
+                  ? "text-accent-strong"
+                  : "text-text"
+                : "text-text-2 hover:text-text"
             }`}
           >
             {option.label}

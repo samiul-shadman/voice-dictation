@@ -94,6 +94,7 @@ export function AnimationsPage() {
         value={tab}
         onChange={handleTab}
         ariaLabel="Style kind"
+        accentActive
         className="mb-5 self-start"
       />
       <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-4">
