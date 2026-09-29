@@ -6,6 +6,7 @@ import { ToastViewport, toast } from "./components/ui";
 import { OverlaySync } from "./lib/OverlaySync";
 import { initShortcutEngine } from "./lib/shortcuts/engine";
 import { useEnvInfo, isMac } from "./lib/stores/env";
+import { isMissingModelError } from "./lib/stores/models";
 import { useRecording } from "./lib/stores/recorder";
 import { ensureInit, onTranscribeComplete, onTranscribeError } from "./lib/stores/transcriber";
 import { AnimationsPage } from "./pages/AnimationsPage";
@@ -110,6 +111,7 @@ function Sidebar() {
 
 function OutcomeToasts() {
   const recorder = useRecording();
+  const navigate = useNavigate();
   const lastError = useRef<string | null>(null);
 
   useEffect(() => {
@@ -141,9 +143,15 @@ function OutcomeToasts() {
   useEffect(
     () =>
       onTranscribeError((payload) => {
+        if (isMissingModelError(payload.message)) {
+          toast("error", "No transcription model yet — download one before transcribing.", {
+            action: { label: "Download a model", onClick: () => navigate("/models") },
+          });
+          return;
+        }
         toast("error", `Transcription failed — ${payload.message}`);
       }),
-    [],
+    [navigate],
   );
 
   return null;

@@ -93,7 +93,11 @@ export async function transcribeFile(path: string, autoPaste: boolean): Promise<
     await invoke("transcribe_file", { path, autoPaste });
   } catch (e) {
     clearActive();
-    throw e instanceof Error ? e : new Error(String(e));
+    // Synchronous command failures (no model, busy, confined path) never reach the
+    // backend's transcribe-error event, so surface them through the same listeners.
+    const message = e instanceof Error ? e.message : String(e);
+    for (const fn of errorListeners) fn({ path, message });
+    throw e instanceof Error ? e : new Error(message);
   }
 }
 

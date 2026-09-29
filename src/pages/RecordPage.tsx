@@ -14,6 +14,7 @@ import {
 import { useAudioPrefs, useSettings, useShortcutConfig } from "../lib/stores/settings";
 import type { AudioFormat } from "../lib/stores/settings";
 import { useEnvInfo } from "../lib/stores/env";
+import { anyModelDownloaded } from "../lib/stores/models";
 
 function setupHint(env: { platform: string; micAvailable: boolean; accessibilityPermission: boolean | null } | null): string | null {
   if (!env) return null;
@@ -33,19 +34,6 @@ function friendly(e: unknown): string {
   if (typeof e === "string") return e;
   if (e instanceof Error) return e.message;
   return String(e);
-}
-
-async function anyModelDownloaded(): Promise<boolean> {
-  try {
-    const models = await invoke<unknown[]>("list_models");
-    return models.some((m) => {
-      if (typeof m !== "object" || m === null) return false;
-      const entry = m as Record<string, unknown>;
-      return entry.downloaded === true || entry.isDownloaded === true || entry.is_downloaded === true;
-    });
-  } catch {
-    return false;
-  }
 }
 
 export function RecordPage() {

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { ChevronDown, Mic, Trash2 } from "lucide-react";
+import { ChevronDown, Cpu, Mic, Trash2 } from "lucide-react";
 import {
   Badge,
   Button,
@@ -9,6 +9,7 @@ import {
   IconButton,
   PageHeader,
   Progress,
+  SectionCard,
   Spinner,
   Tooltip,
   toast,
@@ -25,6 +26,7 @@ import {
 } from "../lib/stores/recorder";
 import type { RecordingMeta } from "../lib/stores/recorder";
 import { useAudioPrefs } from "../lib/stores/settings";
+import { anyModelDownloaded } from "../lib/stores/models";
 import { onTranscribeComplete, onTranscribeError, transcribeFile, useTranscriber } from "../lib/stores/transcriber";
 
 function friendly(e: unknown): string {
@@ -70,6 +72,7 @@ export function LibraryPage() {
   const audioDir = audioPrefs?.audioDir;
   const recorder = useRecording();
   const [recordings, setRecordings] = useState<RecordingMeta[] | null>(null);
+  const [modelsReady, setModelsReady] = useState<boolean | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<RecordingMeta | null>(null);
@@ -88,6 +91,10 @@ export function LibraryPage() {
       setRecordings((prev) => prev ?? []);
       setLoadError(friendly(e));
     }
+  }, []);
+
+  useEffect(() => {
+    void anyModelDownloaded().then(setModelsReady);
   }, []);
 
   useEffect(() => {
@@ -140,6 +147,8 @@ export function LibraryPage() {
 
   const totalSize = recordings ? recordings.reduce((sum, m) => sum + m.size, 0) : 0;
   const count = recordings?.length ?? 0;
+  const needsModel =
+    modelsReady === false && recordings !== null && recordings.some((r) => !r.hasTranscript);
 
   const confirmDeleteAll = async (): Promise<void> => {
     setDeletingAll(true);
@@ -164,6 +173,22 @@ export function LibraryPage() {
         title="Library"
         description="Every recording, with transcript, playback and safe delete."
       />
+      {needsModel && (
+        <SectionCard className="mb-4 border-warn/40 bg-warn-soft">
+          <div className="flex items-center gap-2.5">
+            <Cpu size={16} strokeWidth={1.75} className="shrink-0 text-warn" />
+            <p className="min-w-0 flex-1 text-[13px] text-text">
+              No transcription model yet — download a Parakeet model to transcribe.
+            </p>
+            <Link
+              to="/models"
+              className="shrink-0 text-[13px] font-medium text-accent hover:text-accent-strong"
+            >
+              Models →
+            </Link>
+          </div>
+        </SectionCard>
+      )}
       <div className="mb-4 flex items-center gap-3 text-[13px] text-text-2">
         <span>
           {count} {count === 1 ? "recording" : "recordings"}
