@@ -35,6 +35,7 @@ pub struct ModelPaths {
 pub(crate) struct ModelFile {
     pub(crate) name: &'static str,
     pub(crate) size_bytes: u64,
+    pub(crate) sha256: Option<&'static str>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -47,8 +48,12 @@ pub(crate) struct ModelSpec {
     pub(crate) files: [ModelFile; 4],
 }
 
-/// Pinned upstream file sizes, verified 2026-09-04 against
-/// `curl -s https://huggingface.co/api/models/<repo>/tree/main`.
+/// Pinned upstream file sizes and SHA-256 digests, verified 2026-09-04 against
+/// `curl -s https://huggingface.co/api/models/<repo>/tree/main`. Digests come from
+/// each LFS entry's `lfs.oid` — the tree's top-level `oid` is the SHA-1 of the LFS
+/// pointer, not of the content, and using it would reject every real download.
+/// `tokens.txt` is under the LFS threshold, so HF publishes no content digest for
+/// it and it stays `None` (it is checked semantically at engine load instead).
 /// Re-verify (and update) whenever sherpa-onnx is upgraded or the upstream
 /// repos change — hardcoded sizes drift (doc 08, pitfall 1).
 pub(crate) static CATALOG: [ModelSpec; 2] = [
@@ -59,10 +64,22 @@ pub(crate) static CATALOG: [ModelSpec; 2] = [
         description: "Fast, accurate English transcription (NVIDIA Parakeet TDT 0.6B v2, int8 ONNX).",
         repo: "csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8",
         files: [
-            ModelFile { name: "encoder.int8.onnx", size_bytes: 652_184_296 },
-            ModelFile { name: "decoder.int8.onnx", size_bytes: 7_257_753 },
-            ModelFile { name: "joiner.int8.onnx", size_bytes: 1_739_080 },
-            ModelFile { name: "tokens.txt", size_bytes: 9_384 },
+            ModelFile {
+                name: "encoder.int8.onnx",
+                size_bytes: 652_184_296,
+                sha256: Some("a32b12d17bbbc309d0686fbbcc2987b5e9b8333a7da83fa6b089f0a2acd651ab"),
+            },
+            ModelFile {
+                name: "decoder.int8.onnx",
+                size_bytes: 7_257_753,
+                sha256: Some("b6bb64963457237b900e496ee9994b59294526439fbcc1fecf705b31a15c6b4e"),
+            },
+            ModelFile {
+                name: "joiner.int8.onnx",
+                size_bytes: 1_739_080,
+                sha256: Some("7946164367946e7f9f29a122407c3252b680dbae9a51343eb2488d057c3c43d2"),
+            },
+            ModelFile { name: "tokens.txt", size_bytes: 9_384, sha256: None },
         ],
     },
     ModelSpec {
@@ -75,10 +92,22 @@ pub(crate) static CATALOG: [ModelSpec; 2] = [
         description: "25 European languages (NVIDIA Parakeet TDT 0.6B v3, int8 ONNX).",
         repo: "csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8",
         files: [
-            ModelFile { name: "encoder.int8.onnx", size_bytes: 652_184_281 },
-            ModelFile { name: "decoder.int8.onnx", size_bytes: 11_845_275 },
-            ModelFile { name: "joiner.int8.onnx", size_bytes: 6_355_277 },
-            ModelFile { name: "tokens.txt", size_bytes: 93_939 },
+            ModelFile {
+                name: "encoder.int8.onnx",
+                size_bytes: 652_184_281,
+                sha256: Some("acfc2b4456377e15d04f0243af540b7fe7c992f8d898d751cf134c3a55fd2247"),
+            },
+            ModelFile {
+                name: "decoder.int8.onnx",
+                size_bytes: 11_845_275,
+                sha256: Some("179e50c43d1a9de79c8a24149a2f9bac6eb5981823f2a2ed88d655b24248db4e"),
+            },
+            ModelFile {
+                name: "joiner.int8.onnx",
+                size_bytes: 6_355_277,
+                sha256: Some("3164c13fc2821009440d20fcb5fdc78bff28b4db2f8d0f0b329101719c0948b3"),
+            },
+            ModelFile { name: "tokens.txt", size_bytes: 93_939, sha256: None },
         ],
     },
 ];
@@ -529,10 +558,10 @@ mod tests {
             description: "test",
             repo: "example/test",
             files: [
-                ModelFile { name: "encoder.int8.onnx", size_bytes: 10 },
-                ModelFile { name: "decoder.int8.onnx", size_bytes: 8 },
-                ModelFile { name: "joiner.int8.onnx", size_bytes: 6 },
-                ModelFile { name: "tokens.txt", size_bytes: 4 },
+                ModelFile { name: "encoder.int8.onnx", size_bytes: 10, sha256: None },
+                ModelFile { name: "decoder.int8.onnx", size_bytes: 8, sha256: None },
+                ModelFile { name: "joiner.int8.onnx", size_bytes: 6, sha256: None },
+                ModelFile { name: "tokens.txt", size_bytes: 4, sha256: None },
             ],
         }
     }
@@ -753,5 +782,23 @@ mod tests {
             CATALOG[1].files.iter().map(|f| f.size_bytes).sum::<u64>(),
             652_184_281 + 11_845_275 + 6_355_277 + 93_939
         );
+    }
+
+    #[test]
+    fn catalog_sha256_values_are_lowercase_hex_64() {
+        for spec in &CATALOG {
+            for file in &spec.files {
+                let Some(sha256) = file.sha256 else { continue };
+                assert_eq!(sha256.len(), 64, "{} {}", spec.id, file.name);
+                assert!(
+                    sha256
+                        .chars()
+                        .all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c)),
+                    "{} {} has a non lowercase-hex sha256: {sha256}",
+                    spec.id,
+                    file.name
+                );
+            }
+        }
     }
 }

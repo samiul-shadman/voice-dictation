@@ -2538,6 +2538,7 @@ dependencies = [
  "rubato",
  "serde",
  "serde_json",
+ "sha2",
  "sherpa-rs",
  "shine-rs",
  "symphonia",

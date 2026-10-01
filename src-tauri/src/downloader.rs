@@ -1,7 +1,8 @@
 use serde::Serialize;
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::fs;
-use std::io::{Read, Write};
+use std::io::{BufReader, Read, Write};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError};
@@ -287,13 +288,34 @@ fn download_file(
     if !matches!(outcome, DownloadOutcome::Completed) {
         return outcome;
     }
-    match finalize_download(&part, &dir.join(&file.name), file.size_bytes) {
+    match finalize_download(&part, &dir.join(&file.name), file.size_bytes, file.sha256) {
         Ok(()) => DownloadOutcome::Completed,
         Err(message) => DownloadOutcome::Failed(format!("{}: {message}", file.name)),
     }
 }
 
-fn finalize_download(part: &Path, final_path: &Path, expected_size: u64) -> Result<(), String> {
+fn sha256_of_file(path: &Path) -> Result<String, String> {
+    let file = fs::File::open(path)
+        .map_err(|e| format!("could not read the download for verification: {e}"))?;
+    let mut reader = BufReader::with_capacity(READ_CHUNK, file);
+    let mut buf = vec![0u8; READ_CHUNK];
+    let mut hasher = Sha256::new();
+    loop {
+        match reader.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => hasher.update(&buf[..n]),
+            Err(e) => return Err(format!("could not read the download for verification: {e}")),
+        }
+    }
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
+fn finalize_download(
+    part: &Path,
+    final_path: &Path,
+    expected_size: u64,
+    expected_sha256: Option<&str>,
+) -> Result<(), String> {
     let actual = match part.metadata() {
         Ok(meta) => meta.len(),
         Err(e) => {
@@ -306,6 +328,24 @@ fn finalize_download(part: &Path, final_path: &Path, expected_size: u64) -> Resu
         return Err(format!(
             "downloaded {actual} bytes but the catalog pins {expected_size} — retry the download"
         ));
+    }
+    // A hash check before the rename is the only integrity gate that can run: ONNX
+    // Runtime aborts the process on a malformed model, which catch_unwind cannot catch.
+    if let Some(expected) = expected_sha256 {
+        let digest = match sha256_of_file(part) {
+            Ok(digest) => digest,
+            Err(message) => {
+                let _ = fs::remove_file(part);
+                return Err(message);
+            }
+        };
+        if digest != expected {
+            let _ = fs::remove_file(part);
+            return Err(
+                "failed its integrity check (sha-256 mismatch) — the transfer was corrupted — retry the download"
+                    .to_string(),
+            );
+        }
     }
     if let Err(e) = fs::rename(part, final_path) {
         let _ = fs::remove_file(part);
@@ -579,7 +619,7 @@ mod tests {
         let part = dir.path().join("file.bin.part");
         let final_path = dir.path().join("file.bin");
         fs::write(&part, vec![7u8; 512]).unwrap();
-        finalize_download(&part, &final_path, 512).expect("finalize");
+        finalize_download(&part, &final_path, 512, None).expect("finalize");
         assert!(!part.exists());
         assert_eq!(fs::metadata(&final_path).unwrap().len(), 512);
     }
@@ -590,9 +630,58 @@ mod tests {
         let part = dir.path().join("file.bin.part");
         let final_path = dir.path().join("file.bin");
         fs::write(&part, vec![7u8; 100]).unwrap();
-        let err = finalize_download(&part, &final_path, 512).expect_err("mismatch must fail");
+        let err = finalize_download(&part, &final_path, 512, None).expect_err("mismatch must fail");
         assert!(err.contains("100") && err.contains("512"));
         assert!(!part.exists());
         assert!(!final_path.exists());
+    }
+
+    #[test]
+    fn sha256_of_bytes_matches_known_digest() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("abc.bin");
+        fs::write(&path, b"abc").unwrap();
+        assert_eq!(
+            sha256_of_file(&path).expect("hash"),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+    }
+
+    #[test]
+    fn finalize_rejects_sha256_mismatch_and_removes_part() {
+        let dir = tempfile::tempdir().unwrap();
+        let part = dir.path().join("file.bin.part");
+        let final_path = dir.path().join("file.bin");
+        fs::write(&part, vec![7u8; 512]).unwrap();
+        let wrong = "0".repeat(64);
+        let err = finalize_download(&part, &final_path, 512, Some(&wrong))
+            .expect_err("sha256 mismatch must fail");
+        assert!(err.contains("integrity check"), "got: {err}");
+        assert!(!part.exists());
+        assert!(!final_path.exists());
+    }
+
+    #[test]
+    fn finalize_accepts_nonexistent_expected_hash() {
+        let dir = tempfile::tempdir().unwrap();
+        let part = dir.path().join("file.bin.part");
+        let final_path = dir.path().join("file.bin");
+        fs::write(&part, vec![7u8; 512]).unwrap();
+        finalize_download(&part, &final_path, 512, None).expect("no pinned hash to check");
+        assert!(!part.exists());
+        assert_eq!(fs::metadata(&final_path).unwrap().len(), 512);
+    }
+
+    #[test]
+    fn finalize_accepts_matching_sha256() {
+        let dir = tempfile::tempdir().unwrap();
+        let part = dir.path().join("file.bin.part");
+        let final_path = dir.path().join("file.bin");
+        let payload = vec![7u8; 512];
+        fs::write(&part, &payload).unwrap();
+        let expected = sha256_of_file(&part).expect("hash");
+        finalize_download(&part, &final_path, 512, Some(&expected)).expect("finalize");
+        assert!(!part.exists());
+        assert_eq!(fs::read(&final_path).unwrap(), payload);
     }
 }
