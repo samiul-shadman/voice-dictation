@@ -34,6 +34,10 @@ pub fn run() {
             if let Err(e) = tray::apply(app.handle()) {
                 eprintln!("could not apply the tray indicator: {e}");
             }
+            // Synchronous so the notice is set before the frontend can query it; the
+            // prewarm it describes is the reason this launch got this far.
+            transcriber::note_orphaned_prewarm_marker(app.handle());
+            transcriber::prewarm(app.handle());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -46,6 +50,7 @@ pub fn run() {
             settings::set_indicator_style,
             settings::set_indicator_mode,
             settings::get_settings_warning,
+            settings::get_startup_notice,
             sysinfo::detect_environment,
             sysinfo::recheck_environment,
             recorder::start_recording,

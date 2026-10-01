@@ -92,6 +92,7 @@ impl Default for ShortcutConfig {
 pub struct SettingsState {
     inner: Mutex<AppSettings>,
     warning: Mutex<Option<String>>,
+    startup_notice: Mutex<Option<String>>,
 }
 
 impl SettingsState {
@@ -101,6 +102,7 @@ impl SettingsState {
         let state = SettingsState {
             inner: Mutex::new(settings.clone()),
             warning: Mutex::new(warning),
+            startup_notice: Mutex::new(None),
         };
         let _ = save_to(&path, &settings);
         Ok(state)
@@ -112,6 +114,31 @@ impl SettingsState {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .clone()
     }
+}
+
+/// Session-scoped and deliberately not persisted: it describes one launch, and the
+/// condition that produced it is re-detected on the next one. Kept out of
+/// `AppSettings` so it never reaches `settings.json` or `diff_fields` — there is no
+/// user preference here, and a `settings-changed` event for it would only churn
+/// overlay hydration.
+pub fn set_startup_notice(app: &AppHandle, notice: String) -> Result<(), String> {
+    let state = app.state::<SettingsState>();
+    let mut guard = state
+        .startup_notice
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    *guard = Some(notice);
+    Ok(())
+}
+
+pub fn startup_notice(app: &AppHandle) -> Option<String> {
+    let state = app.state::<SettingsState>();
+    let notice = state
+        .startup_notice
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clone();
+    notice
 }
 
 pub fn with_settings<T>(app: &AppHandle, f: impl FnOnce(&AppSettings) -> T) -> T {
@@ -390,6 +417,14 @@ pub fn set_paste_mode(app: AppHandle, mode: String) -> Result<(), String> {
 #[tauri::command]
 pub fn get_settings_warning(app: AppHandle) -> Option<String> {
     app.state::<SettingsState>().warning()
+}
+
+/// One-shot: reports whether this launch inherited a prewarm crash marker. Separate
+/// from `get_settings_warning` because that is a settings-parse banner rendered on
+/// the Settings page, whereas this is a global, action-required notice.
+#[tauri::command]
+pub fn get_startup_notice(app: AppHandle) -> Option<String> {
+    startup_notice(&app)
 }
 
 #[tauri::command]

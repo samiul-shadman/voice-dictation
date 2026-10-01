@@ -129,6 +129,11 @@ pub fn start_recording(app: tauri::AppHandle, format: Option<String>) -> Result<
         return Err(format!("could not start the microphone stream: {e}"));
     }
 
+    // After play() so the mic is already live and the load overlaps the user
+    // speaking rather than competing with device init. Idempotent — a launch
+    // prewarm already in flight makes this a cache hit.
+    crate::transcriber::prewarm(&app);
+
     let writer_path = path.clone();
     let writer_format = format.clone();
     std::thread::spawn(move || {
