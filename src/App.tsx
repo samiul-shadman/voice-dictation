@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import type { ReactNode } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { HashRouter, Navigate, NavLink, Route, Routes, useNavigate } from "react-router-dom";
 import { Cpu, Keyboard, LibraryBig, Mic, Settings as SettingsIcon, Wand } from "lucide-react";
 import { ToastViewport, toast } from "./components/ui";
@@ -109,7 +110,7 @@ function Sidebar() {
   );
 }
 
-function OutcomeToasts() {
+export function OutcomeToasts() {
   const recorder = useRecording();
   const navigate = useNavigate();
   const lastError = useRef<string | null>(null);
@@ -117,6 +118,20 @@ function OutcomeToasts() {
   useEffect(() => {
     ensureInit();
   }, []);
+
+  // A prewarm that aborted last launch cannot report itself — the process is gone.
+  // This notice is the next launch explaining why, and it stays up until acted on
+  // because it asks the user to fix something.
+  useEffect(() => {
+    void invoke<string | null>("get_startup_notice")
+      .then((notice) => {
+        if (!notice) return;
+        toast("error", notice, {
+          action: { label: "Re-download", onClick: () => navigate("/models") },
+        });
+      })
+      .catch(() => {});
+  }, [navigate]);
 
   useEffect(() => {
     if (!recorder.lastError) {

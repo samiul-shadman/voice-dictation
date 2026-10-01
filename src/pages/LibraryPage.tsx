@@ -42,6 +42,9 @@ function TranscribeCell({ meta }: { meta: RecordingMeta }) {
   const disabled = transcriber.busy || recorder.recording;
 
   if (active) {
+    if (transcriber.phase === "loading") {
+      return <span className="w-28 shrink-0 text-xs text-text-3">Loading model…</span>;
+    }
     return <Progress value={transcriber.percent} showPercent className="w-28 shrink-0" />;
   }
 

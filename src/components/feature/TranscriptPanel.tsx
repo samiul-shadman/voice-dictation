@@ -135,7 +135,11 @@ export default function TranscriptPanel({ path }: TranscriptPanelProps) {
                 onClick={() => void handleRetranscribe()}
                 title={active ? "Transcribing…" : undefined}
               >
-                {active ? `Transcribing ${transcriber.percent}%` : "Re-transcribe"}
+                {active
+                  ? transcriber.phase === "loading"
+                    ? "Loading model…"
+                    : `Transcribing ${transcriber.percent}%`
+                  : "Re-transcribe"}
               </Button>
             </div>
           </div>

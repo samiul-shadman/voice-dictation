@@ -48,6 +48,7 @@ export function OverlaySync() {
         await emitTo(label, "transcribe-progress", {
           path: transcriber.activePath,
           percent: transcriber.percent,
+          phase: transcriber.phase,
         });
       }
     };

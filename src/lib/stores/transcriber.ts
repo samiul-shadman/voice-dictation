@@ -11,13 +11,21 @@ export interface TranscribeCompletePayload {
   pasteError?: string;
 }
 
+export type TranscribePhase = "loading" | "transcribing";
+
 export interface TranscriberState {
   busy: boolean;
   activePath: string | null;
   percent: number;
+  phase: TranscribePhase;
 }
 
-let state: TranscriberState = { busy: false, activePath: null, percent: 0 };
+let state: TranscriberState = {
+  busy: false,
+  activePath: null,
+  percent: 0,
+  phase: "transcribing",
+};
 let initialized = false;
 const listeners = new Set<() => void>();
 const completeListeners = new Set<(payload: TranscribeCompletePayload) => void>();
@@ -29,7 +37,7 @@ function setState(next: Partial<TranscriberState>): void {
 }
 
 function clearActive(): void {
-  setState({ busy: false, activePath: null, percent: 0 });
+  setState({ busy: false, activePath: null, percent: 0, phase: "transcribing" });
 }
 
 export function subscribeTranscriber(fn: () => void): () => void {
@@ -45,14 +53,16 @@ export function ensureInit(): void {
   initialized = true;
   void (async () => {
     try {
-      await listen<{ path: string; percent: number }>("transcribe-progress", (e) => {
+      await listen<{ path: string; percent: number; phase?: string }>("transcribe-progress", (e) => {
         const { path, percent } = e.payload;
+        // phase is optional on the wire (OverlaySync synthesises phase-less events) — absent means transcribing
+        const phase: TranscribePhase = e.payload.phase === "loading" ? "loading" : "transcribing";
         if (!state.busy) {
           // adoption rule: overlays consume this store without transcribeFile;
           // the backend guarantees the first progress event is 0%
-          setState({ busy: true, activePath: path, percent });
+          setState({ busy: true, activePath: path, percent, phase });
         } else if (state.activePath === path) {
-          setState({ percent });
+          setState({ percent, phase });
         }
       });
       await listen<TranscribeCompletePayload>("transcribe-complete", (e) => {
