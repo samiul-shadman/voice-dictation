@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 import type { JSX } from "react";
+import { levelToUnit } from "../lib/animations/levelResponse";
 
 const BAR_COUNT = 20;
-const MIN_BAR_PX = 4;
-const LEVEL_SCALE_PX = 28;
+const TRACE_HEIGHT_PX = 44;
+const MIN_BAR_PX = 3;
+const LEVEL_SPAN_PX = TRACE_HEIGHT_PX - MIN_BAR_PX;
 
 const css = `
 .level-trace {
@@ -11,17 +13,23 @@ const css = `
   flex-direction: row;
   align-items: flex-end;
   gap: 3px;
-  height: 32px;
+  height: ${TRACE_HEIGHT_PX}px;
 }
 .level-trace-bar {
   width: 4px;
   flex: 0 0 auto;
+  border-radius: 999px;
   background: var(--rec, #c4a46a);
 }
 `;
 
 export interface LevelTraceProps {
   level: number;
+}
+
+function barHeightPx(level: number): string {
+  const px = MIN_BAR_PX + levelToUnit(level) * LEVEL_SPAN_PX;
+  return `${px.toFixed(2)}px`;
 }
 
 export function LevelTrace(props: LevelTraceProps): JSX.Element {
@@ -39,7 +47,7 @@ export function LevelTrace(props: LevelTraceProps): JSX.Element {
         <span
           key={i}
           className="level-trace-bar"
-          style={{ height: `${Math.max(MIN_BAR_PX, (levels[i] ?? 0) * LEVEL_SCALE_PX)}px` }}
+          style={{ height: barHeightPx(levels[i] ?? 0) }}
         />
       ))}
     </div>

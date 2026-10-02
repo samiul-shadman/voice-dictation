@@ -7,7 +7,7 @@ import {
   positionOnPrimaryMonitor,
 } from "./overlay";
 
-const RECORDING_INDICATOR_SIZE = { width: 260, height: 76 };
+const RECORDING_INDICATOR_SIZE = { width: 260, height: 88 };
 const LABEL = "recording-indicator";
 
 export async function ensureRecordingIndicatorWindow(): Promise<void> {

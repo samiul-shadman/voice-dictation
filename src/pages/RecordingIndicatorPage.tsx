@@ -52,7 +52,7 @@ export function RecordingIndicatorPage() {
   }, []);
 
   return (
-    <div className="flex h-screen items-center justify-center p-3">
+    <div className="flex h-screen items-center justify-center p-2">
       <style>{COMPACT_CSS}</style>
       <RecordingPill
         recordingStyleId={live.recording ?? styles?.recordingStyle}
