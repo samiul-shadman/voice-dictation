@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { AudioLines, Wand } from "lucide-react";
@@ -76,6 +76,7 @@ interface ShortcutCardProps {
   ready: boolean;
   masterOff: boolean;
   conflict: string | null;
+  busy: boolean;
   onComboChange: (action: ActionId, combo: string | null) => void;
   onTriggerChange: (action: ActionId, trigger: Trigger) => void;
   onEnabledChange: (action: ActionId, enabled: boolean) => void;
@@ -90,6 +91,7 @@ function ShortcutCard({
   ready,
   masterOff,
   conflict,
+  busy,
   onComboChange,
   onTriggerChange,
   onEnabledChange,
@@ -133,6 +135,7 @@ function ShortcutCard({
           label={`${meta.name} shortcut enabled`}
           checked={enabled}
           disabled={masterOff}
+          busy={busy}
           onChange={(next) => onEnabledChange(action, next)}
         />
       </div>
@@ -173,6 +176,27 @@ export function ShortcutsPage() {
     });
   };
 
+  // Drops only the fields this patch owned, so a failed write does not also discard
+  // an optimistic value for another field that is still in flight.
+  const clearPendingFor = (action: ActionId, patch: ShortcutPatch): void => {
+    setPending((prev) => {
+      const merged = prev[action];
+      if (!merged) return prev;
+      const next = { ...prev };
+      const kept = { ...merged };
+      for (const field of Object.keys(patch) as (keyof ShortcutPatch)[]) delete kept[field];
+      if (Object.keys(kept).length) next[action] = kept;
+      else delete next[action];
+      return next;
+    });
+  };
+
+  // set_shortcut is a whole-file rewrite in Rust, so two overlapping invokes for the
+  // same action can land in either order and persist the older value last. Chaining
+  // keeps every action's writes strictly sequential while leaving the two actions
+  // independent.
+  const writes = useRef<Partial<Record<ActionId, Promise<void>>>>({});
+
   useEffect(() => {
     if (!shortcuts) return;
     setPending((prev) => {
@@ -200,15 +224,20 @@ export function ShortcutsPage() {
 
   async function persistShortcut(action: ActionId, patch: ShortcutPatch): Promise<void> {
     setPendingFor(action, patch);
-    try {
-      await invoke("set_shortcut", {
+    const send = (): Promise<void> =>
+      invoke("set_shortcut", {
         action,
         combo: patch.combo ?? null,
         trigger: patch.trigger ?? null,
         enabled: patch.enabled ?? null,
-      });
+      }).then(() => undefined);
+    const previous = writes.current[action] ?? Promise.resolve();
+    const current = previous.then(send, send);
+    writes.current[action] = current.catch(() => undefined);
+    try {
+      await current;
     } catch (e) {
-      setPendingFor(action, null);
+      clearPendingFor(action, patch);
       toast("error", `Could not update shortcut: ${errorMessage(e)}`);
     }
   }
@@ -273,6 +302,7 @@ export function ShortcutsPage() {
               label="Global shortcuts"
               checked={masterOn}
               disabled={master === null && pendingMaster === null}
+              busy={pendingMaster !== null}
               onChange={handleMasterChange}
             />
           </div>
@@ -296,6 +326,7 @@ export function ShortcutsPage() {
                 ready={status.ready}
                 masterOff={masterOff}
                 conflict={conflict}
+                busy={pending[action] !== undefined}
                 onComboChange={handleComboChange}
                 onTriggerChange={(target, next) => void persistShortcut(target, { trigger: next })}
                 onEnabledChange={(target, next) => void persistShortcut(target, { enabled: next })}

@@ -93,6 +93,17 @@ __docs/features/         v2 post-mortem distilled into feature lessons
     (`lib.rs` sets `WEBKIT_DISABLE_DMABUF_RENDERER=1` when unset). It fails to
     allocate GBM buffers on some X11/NVIDIA drivers and renders a blank window; the
     dev script sets the same variable. Do not remove it.
+12. **Never mix a Tailwind `translate-*`/`-translate-*` utility with an inline
+    `style.transform` on the same element.** In Tailwind 4 the utilities emit the
+    `translate` *property* (`translate: var(--tw-translate-x) var(--tw-translate-y)`),
+    which composes with `transform` rather than replacing it — both offsets apply and
+    the element lands twice as far off as intended (this shipped a `Switch` knob
+    6px above its track). Pick one mechanism per axis. Related trap: `100%` on an
+    absolutely positioned child resolves against the *padding* box, so a pill's
+    `calc()` width has to allow for the wrapper's padding **and** border — measure the
+    real rects instead of deriving them by eye. jsdom cannot measure either, so verify
+    design-kit geometry by rendering the compiled `dist/assets/*.css` in headless Chrome
+    and comparing `getBoundingClientRect()` against the intended insets.
 
 ## Conventions
 
