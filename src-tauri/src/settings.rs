@@ -379,11 +379,11 @@ pub fn set_shortcut(
 }
 
 #[tauri::command]
-pub fn set_global_shortcuts_enabled(app: AppHandle, enabled: bool) {
-    let _ = update_settings(&app, move |s| {
+pub fn set_global_shortcuts_enabled(app: AppHandle, enabled: bool) -> Result<(), String> {
+    update_settings(&app, move |s| {
         s.global_shortcuts_enabled = enabled;
         Ok(())
-    });
+    })
 }
 
 #[tauri::command]

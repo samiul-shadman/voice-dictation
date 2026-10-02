@@ -33,6 +33,7 @@ export function startCapture(handlers: CaptureHandlers): () => void {
     }
     if (e.key === "Backspace" || e.key === "Delete") {
       e.preventDefault();
+      stop();
       handlers.onClear();
       return;
     }

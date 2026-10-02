@@ -10,6 +10,7 @@ export interface SegmentedControlProps<T extends string> {
   ariaLabel?: string;
   className?: string;
   accentActive?: boolean;
+  disabled?: boolean;
 }
 
 export function SegmentedControl<T extends string>({
@@ -19,6 +20,7 @@ export function SegmentedControl<T extends string>({
   ariaLabel,
   className = "",
   accentActive = false,
+  disabled = false,
 }: SegmentedControlProps<T>) {
   const activeIndex = Math.max(
     0,
@@ -28,7 +30,8 @@ export function SegmentedControl<T extends string>({
     <div
       role="radiogroup"
       aria-label={ariaLabel}
-      className={`relative flex rounded-md border border-border bg-surface p-1 ${className}`}
+      aria-disabled={disabled || undefined}
+      className={`relative flex rounded-md border border-border bg-surface p-1 disabled:pointer-events-none disabled:opacity-50 ${className}`}
     >
       <span
         aria-hidden
@@ -48,6 +51,7 @@ export function SegmentedControl<T extends string>({
             type="button"
             role="radio"
             aria-checked={active}
+            disabled={disabled}
             onClick={() => onChange(option.value)}
             className={`relative z-10 h-7 flex-1 rounded-[8px] text-[13px] font-medium transition-colors duration-150 ${
               active

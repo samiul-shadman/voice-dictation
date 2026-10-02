@@ -55,6 +55,42 @@ describe("KeyInput", () => {
     expect(onChange).not.toHaveBeenCalled();
   });
 
+  it("clears the binding and leaves capture mode on Backspace", () => {
+    const onChange = vi.fn();
+    const { rerender } = render(
+      <KeyInput value="ctrl+shift+space" onChange={onChange} action="voiceNote" />,
+    );
+
+    beginCapture("Voice note hotkey");
+    const field = screen.getByRole("button", { name: "Voice note hotkey" });
+    expect(field.textContent).toContain("Press keys");
+
+    fireEvent.keyDown(document.body, { key: "Backspace", code: "Backspace" });
+
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onChange).toHaveBeenCalledWith(null);
+    expect(field.textContent).not.toContain("Press keys");
+
+    rerender(<KeyInput value={null} onChange={onChange} action="voiceNote" />);
+    expect(field.textContent).toContain("Click to record a hotkey");
+  });
+
+  it("stops listening after a clear so a later combo is not captured", () => {
+    const onChange = vi.fn();
+    render(<KeyInput value="ctrl+shift+space" onChange={onChange} action="voiceNote" />);
+
+    beginCapture("Voice note hotkey");
+    fireEvent.keyDown(document.body, { key: "Backspace", code: "Backspace" });
+    fireEvent.keyDown(document.body, {
+      key: "k",
+      code: "KeyK",
+      ctrlKey: true,
+    });
+
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onChange).toHaveBeenCalledWith(null);
+  });
+
   it("stops listening after unmount", () => {
     const onChange = vi.fn();
     const { unmount } = render(<KeyInput value={null} onChange={onChange} action="voiceNote" />);

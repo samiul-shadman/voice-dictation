@@ -6,7 +6,6 @@ import { Kbd } from "./Kbd";
 export interface KeyInputProps {
   value: string | null;
   onChange: (combo: string | null) => void;
-  error?: string | null;
   placeholder?: string;
   disabled?: boolean;
   action: "voiceNote" | "record";
@@ -30,8 +29,7 @@ function ComboChips({ combo }: { combo: string }) {
 export default function KeyInput({
   value,
   onChange,
-  error = null,
-  placeholder = "Set a hotkey",
+  placeholder = "Click to record a hotkey",
   disabled = false,
   action,
 }: KeyInputProps) {
@@ -60,7 +58,7 @@ export default function KeyInput({
       },
       onCancel: endCapture,
       onClear: () => {
-        setPreview("");
+        endCapture();
         onChange(null);
       },
     });
@@ -78,24 +76,27 @@ export default function KeyInput({
     if (disabled) endCapture();
   }, [disabled]);
 
+  const shown = capturing ? preview : combo;
+
   return (
-    <div className="min-w-0">
-      <button
-        type="button"
-        aria-label={`${label} hotkey`}
-        disabled={disabled}
-        onClick={beginCapture}
-        onBlur={() => {
-          if (capturing) endCapture();
-        }}
-        className={`flex h-9 w-full items-center gap-1.5 overflow-hidden rounded-md border px-2.5 text-left transition-colors duration-150 disabled:pointer-events-none disabled:opacity-50 ${
-          capturing
-            ? "border-accent bg-accent-soft"
-            : combo
-              ? "border-border bg-surface hover:border-border-strong"
-              : "border-dashed border-border bg-surface hover:border-border-strong"
-        }`}
-      >
+    <button
+      type="button"
+      aria-label={`${label} hotkey`}
+      disabled={disabled}
+      onClick={beginCapture}
+      onBlur={() => {
+        if (capturing) endCapture();
+      }}
+      title={shown ? humanize(shown) : undefined}
+      className={`flex h-9 w-full items-center gap-1.5 overflow-hidden rounded-md border px-2.5 text-left transition-colors duration-150 disabled:pointer-events-none disabled:opacity-50 ${
+        capturing
+          ? "border-accent bg-accent-soft"
+          : combo
+            ? "border-border bg-surface hover:border-border-strong"
+            : "border-dashed border-border bg-surface hover:border-border-strong"
+      }`}
+    >
+      <span aria-live="polite" className="flex min-w-0 items-center">
         {capturing ? (
           preview ? (
             <ComboChips combo={preview} />
@@ -107,8 +108,7 @@ export default function KeyInput({
         ) : (
           <span className="truncate text-[13px] text-text-3">{placeholder}</span>
         )}
-      </button>
-      {error ? <p className="mt-1.5 text-xs text-err">{error}</p> : null}
-    </div>
+      </span>
+    </button>
   );
 }

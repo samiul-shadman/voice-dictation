@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { AudioLines, Wand } from "lucide-react";
@@ -12,14 +12,14 @@ import {
 } from "../components/ui";
 import KeyInput from "../components/ui/KeyInput";
 import type { SegmentedOption } from "../components/ui/SegmentedControl";
-import { canonicalCombo } from "../lib/shortcuts/canonical";
 import type { ActionId, Trigger } from "../lib/shortcuts/canonical";
 import { useShortcutStatus } from "../lib/shortcuts/engine";
 import type { ShortcutStatusEntry } from "../lib/shortcuts/engine";
+import { conflictMessage, resolveShortcutView } from "../lib/shortcuts/viewState";
+import type { ShortcutPatch } from "../lib/shortcuts/viewState";
 import { useGlobalShortcutsEnabled, useShortcutConfig } from "../lib/stores/settings";
-import type { ShortcutConfig } from "../lib/stores/settings";
 
-const ACTION_ORDER: ActionId[] = ["voiceNote", "record"];
+const ACTION_ORDER: readonly ActionId[] = ["voiceNote", "record"];
 
 const ACTION_META: Record<ActionId, { name: string; description: string; icon: ReactNode }> = {
   voiceNote: {
@@ -44,6 +44,8 @@ const TRIGGER_HINTS: Record<Trigger, string> = {
   toggle: "Press once to start. Press again to stop.",
 };
 
+type PendingPatches = Partial<Record<ActionId, ShortcutPatch>>;
+
 function errorMessage(e: unknown): string {
   if (typeof e === "string") return e;
   if (e instanceof Error) return e.message;
@@ -65,28 +67,15 @@ function statusLine(entry: ShortcutStatusEntry): { text: string; className: stri
   }
 }
 
-async function persistShortcut(
-  action: ActionId,
-  patch: { combo?: string | null; trigger?: Trigger; enabled?: boolean },
-): Promise<void> {
-  try {
-    await invoke("set_shortcut", {
-      action,
-      combo: patch.combo ?? null,
-      trigger: patch.trigger ?? null,
-      enabled: patch.enabled ?? null,
-    });
-  } catch (e) {
-    toast("error", `Could not update shortcut: ${errorMessage(e)}`);
-  }
-}
-
 interface ShortcutCardProps {
   action: ActionId;
-  config: ShortcutConfig;
+  combo: string | null;
+  trigger: Trigger;
+  enabled: boolean;
   status: ShortcutStatusEntry;
+  ready: boolean;
   masterOff: boolean;
-  fieldError: string | null;
+  conflict: string | null;
   onComboChange: (action: ActionId, combo: string | null) => void;
   onTriggerChange: (action: ActionId, trigger: Trigger) => void;
   onEnabledChange: (action: ActionId, enabled: boolean) => void;
@@ -94,10 +83,13 @@ interface ShortcutCardProps {
 
 function ShortcutCard({
   action,
-  config,
+  combo,
+  trigger,
+  enabled,
   status,
+  ready,
   masterOff,
-  fieldError,
+  conflict,
   onComboChange,
   onTriggerChange,
   onEnabledChange,
@@ -118,34 +110,42 @@ function ShortcutCard({
           <p className="mt-0.5 text-[13px] text-text-2">{meta.description}</p>
         </div>
       </div>
-      <div className={masterOff ? "pointer-events-none opacity-50" : undefined}>
-        <div className="mt-4 flex flex-wrap items-center gap-3">
-          <div className="min-w-[220px] flex-1">
-            <KeyInput
-              action={action}
-              value={config.combo}
-              error={fieldError}
-              disabled={masterOff}
-              onChange={(combo) => onComboChange(action, combo)}
-            />
-          </div>
-          <SegmentedControl
-            options={TRIGGER_OPTIONS}
-            value={config.trigger}
-            onChange={(trigger) => onTriggerChange(action, trigger)}
-            ariaLabel={`${meta.name} trigger`}
-            className="w-[170px]"
-          />
-          <Switch
-            label={`${meta.name} shortcut enabled`}
-            checked={config.enabled}
+      <div className="mt-4 grid grid-cols-[minmax(0,1fr)_132px_auto] items-center gap-x-3 gap-y-1.5">
+        <span className="text-[11px] text-text-3">Hotkey</span>
+        <span className="text-[11px] text-text-3">Trigger</span>
+        <span className="text-[11px] text-text-3">Enabled</span>
+        <div className="min-w-0">
+          <KeyInput
+            action={action}
+            value={combo}
             disabled={masterOff}
-            onChange={(enabled) => onEnabledChange(action, enabled)}
+            onChange={(next) => onComboChange(action, next)}
           />
         </div>
-        <p className="mt-2 text-xs text-text-3">{TRIGGER_HINTS[config.trigger]}</p>
+        <SegmentedControl
+          options={TRIGGER_OPTIONS}
+          value={trigger}
+          onChange={(next) => onTriggerChange(action, next)}
+          ariaLabel={`${meta.name} trigger`}
+          disabled={masterOff}
+        />
+        <Switch
+          label={`${meta.name} shortcut enabled`}
+          checked={enabled}
+          disabled={masterOff}
+          onChange={(next) => onEnabledChange(action, next)}
+        />
       </div>
-      <p className={`mt-1.5 text-xs ${line.className}`}>{line.text}</p>
+      <p aria-live="polite" className="mt-2 min-h-4 text-xs">
+        {conflict ? (
+          <span className="text-err">{conflict}</span>
+        ) : (
+          <span className="text-text-3">{TRIGGER_HINTS[trigger]}</span>
+        )}
+      </p>
+      <p className={`mt-1.5 text-xs ${line.className}`}>
+        {ready ? line.text : "Checking registration…"}
+      </p>
     </SectionCard>
   );
 }
@@ -154,44 +154,106 @@ export function ShortcutsPage() {
   const shortcuts = useShortcutConfig();
   const master = useGlobalShortcutsEnabled();
   const status = useShortcutStatus();
-  const [fieldErrors, setFieldErrors] = useState<Partial<Record<ActionId, string>>>({});
+  const [pending, setPending] = useState<PendingPatches>({});
+  const [pendingMaster, setPendingMaster] = useState<boolean | null>(null);
+  // The combo the user just pressed that we refused to persist. The message is
+  // derived from it every render, so it disappears on its own once the other
+  // action gives the combo up.
+  const [rejected, setRejected] = useState<Partial<Record<ActionId, string>>>({});
 
-  const masterOff = master !== true;
+  const masterOff = master !== true && pendingMaster === null;
+  const masterOn = pendingMaster ?? master === true;
 
-  const setFieldError = (action: ActionId, message: string | null): void => {
-    setFieldErrors((prev) => {
+  const setPendingFor = (action: ActionId, patch: ShortcutPatch | null): void => {
+    setPending((prev) => {
       const next = { ...prev };
-      if (message === null) delete next[action];
-      else next[action] = message;
+      if (patch) next[action] = { ...next[action], ...patch };
+      else delete next[action];
       return next;
     });
   };
 
+  useEffect(() => {
+    if (!shortcuts) return;
+    setPending((prev) => {
+      const entries = Object.entries(prev) as [ActionId, ShortcutPatch][];
+      if (!entries.length) return prev;
+      const next = { ...prev };
+      let changed = false;
+      for (const [action, patch] of entries) {
+        const stored = shortcuts[action];
+        const settled =
+          (patch.combo === undefined || stored.combo === patch.combo) &&
+          (patch.trigger === undefined || stored.trigger === patch.trigger) &&
+          (patch.enabled === undefined || stored.enabled === patch.enabled);
+        if (!settled) continue;
+        delete next[action];
+        changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, [shortcuts]);
+
+  useEffect(() => {
+    if (master !== null && pendingMaster === master) setPendingMaster(null);
+  }, [master, pendingMaster]);
+
+  async function persistShortcut(action: ActionId, patch: ShortcutPatch): Promise<void> {
+    setPendingFor(action, patch);
+    try {
+      await invoke("set_shortcut", {
+        action,
+        combo: patch.combo ?? null,
+        trigger: patch.trigger ?? null,
+        enabled: patch.enabled ?? null,
+      });
+    } catch (e) {
+      setPendingFor(action, null);
+      toast("error", `Could not update shortcut: ${errorMessage(e)}`);
+    }
+  }
+
   const handleComboChange = (action: ActionId, combo: string | null): void => {
+    if (!shortcuts) return;
+    const forget = (): void =>
+      setRejected((prev) => {
+        const next = { ...prev };
+        delete next[action];
+        return next;
+      });
     if (combo === null) {
-      setFieldError(action, null);
-      void persistShortcut(action, { combo: "" });
+      forget();
+      void persistShortcut(action, { combo: null });
       return;
     }
-    const other = ACTION_ORDER.find((candidate) => candidate !== action);
-    const otherCombo =
-      other && shortcuts ? shortcuts[other].combo : null;
-    if (otherCombo && canonicalCombo(otherCombo) === combo) {
-      setFieldError(action, `Already used by ${ACTION_META[other ?? action].name}`);
+    const clash = conflictMessage(action, combo, shortcuts, masterOn);
+    if (clash) {
+      setRejected((prev) => ({ ...prev, [action]: combo }));
       return;
     }
-    setFieldError(action, null);
+    forget();
     void persistShortcut(action, { combo });
   };
 
+  const handleMasterChange = (enabled: boolean): void => {
+    setPendingMaster(enabled);
+    void invoke("set_global_shortcuts_enabled", { enabled })
+      .catch((e) => {
+        setPendingMaster(null);
+        toast("error", `Could not update global shortcuts: ${errorMessage(e)}`);
+      });
+  };
+
   const masterStatus = (() => {
-    if (master === null) return { text: "Loading settings…", className: "text-text-3" };
-    if (!master) return { text: "Disabled", className: "text-text-3" };
-    if (status.firstError) return { text: status.firstError, className: "text-warn" };
-    return {
-      text: `${status.registeredCount} registered`,
-      className: "text-ok",
-    };
+    if (master === null && pendingMaster === null) {
+      return { text: "Loading settings…", className: "text-text-3" };
+    }
+    if (!masterOn) return { text: "Disabled", className: "text-text-3" };
+    if (!status.ready) return { text: "Checking registration…", className: "text-text-3" };
+    if (status.firstError) {
+      return { text: `Not registered — ${status.firstError}`, className: "text-warn" };
+    }
+    return { text: `${status.registeredCount} registered`, className: "text-ok" };
   })();
 
   return (
@@ -209,30 +271,37 @@ export function ShortcutsPage() {
             </div>
             <Switch
               label="Global shortcuts"
-              checked={master === true}
-              disabled={master === null}
-              onChange={(enabled) => {
-                void invoke("set_global_shortcuts_enabled", { enabled }).catch((e) => {
-                  toast("error", `Could not update global shortcuts: ${errorMessage(e)}`);
-                });
-              }}
+              checked={masterOn}
+              disabled={master === null && pendingMaster === null}
+              onChange={handleMasterChange}
             />
           </div>
         </SectionCard>
         {shortcuts ? (
-          ACTION_ORDER.map((action) => (
-            <ShortcutCard
-              key={action}
-              action={action}
-              config={shortcuts[action]}
-              status={status.actions[action]}
-              masterOff={masterOff}
-              fieldError={fieldErrors[action] ?? null}
-              onComboChange={handleComboChange}
-              onTriggerChange={(target, trigger) => void persistShortcut(target, { trigger })}
-              onEnabledChange={(target, enabled) => void persistShortcut(target, { enabled })}
-            />
-          ))
+          ACTION_ORDER.map((action) => {
+            const view = resolveShortcutView(shortcuts[action], pending[action]);
+            const rejectedCombo = rejected[action];
+            const conflict =
+              rejectedCombo !== undefined
+                ? conflictMessage(action, rejectedCombo, shortcuts, masterOn)
+                : null;
+            return (
+              <ShortcutCard
+                key={action}
+                action={action}
+                combo={view.combo}
+                trigger={view.trigger}
+                enabled={view.enabled}
+                status={status.actions[action]}
+                ready={status.ready}
+                masterOff={masterOff}
+                conflict={conflict}
+                onComboChange={handleComboChange}
+                onTriggerChange={(target, next) => void persistShortcut(target, { trigger: next })}
+                onEnabledChange={(target, next) => void persistShortcut(target, { enabled: next })}
+              />
+            );
+          })
         ) : (
           <p className="text-[13px] text-text-3">Loading settings…</p>
         )}

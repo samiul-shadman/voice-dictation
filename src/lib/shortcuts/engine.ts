@@ -33,6 +33,8 @@ export interface ShortcutStatusState {
   actions: Record<ActionId, ShortcutStatusEntry>;
   registeredCount: number;
   firstError?: string;
+  /** False until the first sync completes, so the UI can tell "not checked yet" from "off". */
+  ready: boolean;
 }
 
 interface DesiredEntry {
@@ -59,6 +61,7 @@ let toggleTimer: ReturnType<typeof setTimeout> | null = null;
 let statusSnapshot: ShortcutStatusState = {
   actions: { voiceNote: { state: "off" }, record: { state: "off" } },
   registeredCount: 0,
+  ready: false,
 };
 
 export function getArmed(): ArmedState | null {
@@ -178,6 +181,7 @@ async function runSync(): Promise<void> {
     settings = await invoke<Settings>("get_settings");
   } catch (e) {
     console.error("[shortcuts] get_settings failed", e);
+    applyStatus({ voiceNote: { state: "off" }, record: { state: "off" } });
     return;
   }
 
@@ -252,7 +256,9 @@ function applyStatus(actions: Record<ActionId, ShortcutStatusEntry>): void {
   const firstError = ACTIONS.map((action) =>
     actions[action].state === "error" ? actions[action].detail : undefined,
   ).find((detail): detail is string => typeof detail === "string");
-  statusSnapshot = firstError ? { actions, registeredCount, firstError } : { actions, registeredCount };
+  statusSnapshot = firstError
+    ? { actions, registeredCount, firstError, ready: true }
+    : { actions, registeredCount, ready: true };
   for (const fn of statusListeners) fn();
 }
 
@@ -307,5 +313,6 @@ export function resetShortcutEngineForTests(): void {
   statusSnapshot = {
     actions: { voiceNote: { state: "off" }, record: { state: "off" } },
     registeredCount: 0,
+    ready: false,
   };
 }
