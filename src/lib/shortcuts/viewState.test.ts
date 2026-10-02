@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { conflictMessage, resolveShortcutView } from "./viewState";
+import { conflictMessage, registrationErrorMessage, resolveShortcutView } from "./viewState";
 import type { ShortcutConfigs, ShortcutViewConfig } from "./viewState";
 
 function cfg(over: Partial<ShortcutViewConfig> = {}): ShortcutViewConfig {
@@ -79,10 +79,57 @@ describe("resolveShortcutView", () => {
   });
 
   it("keeps a second toggle computing from the pending value, not the stale one", () => {
-    const stored = cfg({ enabled: true });
-    const afterFirst = resolveShortcutView(stored, { enabled: false });
+    const config = cfg({ enabled: true });
+    const afterFirst = resolveShortcutView(config, { enabled: false });
     expect(afterFirst.enabled).toBe(false);
     const afterSecond = resolveShortcutView(afterFirst, { enabled: true });
     expect(afterSecond.enabled).toBe(true);
+  });
+});
+
+describe("registrationErrorMessage", () => {
+  it("names the combo when another application already owns it", () => {
+    expect(
+      registrationErrorMessage(
+        "failed to register: Control+Space is already registered by another application",
+        "ctrl+space",
+      ),
+    ).toBe("another application is already using Ctrl + Space — close it or pick a different combo");
+  });
+
+  it("matches the global-hotkey debug wording regardless of case", () => {
+    expect(
+      registrationErrorMessage(
+        "HotKey already registered: HotKey { mods: Modifiers(CONTROL), key: Space, id: 524350 }",
+        "ctrl+space",
+      ),
+    ).toBe("another application is already using Ctrl + Space — close it or pick a different combo");
+  });
+
+  it("falls back to wording without a combo when none is known", () => {
+    expect(registrationErrorMessage("already registered", "")).toBe(
+      "another application is already using this combo — close it or pick a different combo",
+    );
+  });
+
+  it("reports a key the keyboard does not have", () => {
+    expect(
+      registrationErrorMessage("Unable to register hotkey: Unknown scancode for key: Space", "ctrl+space"),
+    ).toBe("this key is not available on your keyboard");
+    expect(
+      registrationErrorMessage("Unable to find keycode for key: Space", "ctrl+space"),
+    ).toBe("this key is not available on your keyboard");
+  });
+
+  it("passes an unrecognized failure through unchanged", () => {
+    expect(registrationErrorMessage("something else entirely", "ctrl+space")).toBe(
+      "something else entirely",
+    );
+  });
+
+  it("leaves the engine's own intra-app conflict wording alone", () => {
+    expect(registrationErrorMessage("combo conflicts with another action", "ctrl+space")).toBe(
+      "combo conflicts with another action",
+    );
   });
 });

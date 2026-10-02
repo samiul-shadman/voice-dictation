@@ -53,18 +53,30 @@ A configurable shortcut system with two scopes and three actions:
 
 ## Gotchas
 
-1. **Overlays register shortcuts too** — `useGlobalShortcuts()` runs unconditionally in
+1. **A frontend reload orphans the grab, and the retry is invisible.** The plugin holds
+   the X11 grab and the JS handler `Channel` on the Rust side, so a full page reload
+   (Vite reload, F5) drops the handler while the grab survives. X11 lets a client
+   re-grab a key it already owns, so the re-`register` gets no error from the server —
+   but `global-hotkey` rejects it from its own in-process map
+   (`platform_impl/x11/mod.rs:184`) and returns `AlreadyRegistered`, so the new handler
+   is never wired and the hotkey is dead until the process restarts. `live` in
+   `engine.ts` is only this JS session's view of the OS registry and must never be
+   treated as the authority: reconcile with `isRegistered` + `unregister` before every
+   `register`. Both `AlreadyRegistered` sources format identically, so the UI cannot tell
+   "another app owns it" from "this process already holds it" — map the message to prose
+   rather than surfacing the `Debug` dump.
+2. **Overlays register shortcuts too** — `useGlobalShortcuts()` runs unconditionally in
    *every* webview (`App.tsx:30-31`), so overlay windows also call `register` for the
    same accelerators. The plugin is process-global; this can produce duplicate
    handling or spurious "Not registered" status noise. Scoping these hooks to the main
    window would be safer.
-2. **Duplicate detection compares raw strings**, not canonical combos — `Ctrl+A` vs a
+3. **Duplicate detection compares raw strings**, not canonical combos — `Ctrl+A` vs a
    `ctrl+KeyA` variant could evade it (low practical risk since both come from the same UI).
-3. **Lost key-up** — if the app loses focus mid-hold and never gets keyup, the hold
+4. **Lost key-up** — if the app loses focus mid-hold and never gets keyup, the hold
    state machine relies on the `blur` safety net; a timeout failsafe would be more robust.
-4. **Duplicated hold logic** — `recordingHold.ts` and `voiceNote.ts` are near-identical
+5. **Duplicated hold logic** — `recordingHold.ts` and `voiceNote.ts` are near-identical
    state machines that could share one helper.
-5. Radio-group `name` collisions: `${action}-scope`/`${action}-trigger` — a third section
+6. Radio-group `name` collisions: `${action}-scope`/`${action}-trigger` — a third section
    with the same action would break radio grouping.
 
 ## Difficulties & mitigations (from git `48d31a2`, `136ac25`)

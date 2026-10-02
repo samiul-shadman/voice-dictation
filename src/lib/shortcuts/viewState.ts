@@ -1,4 +1,4 @@
-import { canonicalCombo } from "./canonical";
+import { canonicalCombo, humanize } from "./canonical";
 import type { ActionId, Trigger } from "./canonical";
 
 export interface ShortcutViewConfig {
@@ -54,4 +54,28 @@ export function resolveShortcutView(
     trigger: patch.trigger ?? config.trigger,
     enabled: patch.enabled ?? config.enabled,
   };
+}
+
+// global-hotkey formats every registration failure as a Rust Debug dump, and reports
+// "already registered" both for a combo another client owns and for a duplicate this
+// process already holds — the two are indistinguishable from the message alone.
+const REGISTER_ERROR_MATCHERS: readonly { pattern: RegExp; message: (combo: string) => string }[] = [
+  {
+    pattern: /already registered/i,
+    message: (combo) =>
+      combo
+        ? `another application is already using ${combo} — close it or pick a different combo`
+        : "another application is already using this combo — close it or pick a different combo",
+  },
+  {
+    pattern: /unknown scancode|unable to find keycode/i,
+    message: () => "this key is not available on your keyboard",
+  },
+];
+
+export function registrationErrorMessage(raw: string, canon: string): string {
+  for (const { pattern, message } of REGISTER_ERROR_MATCHERS) {
+    if (pattern.test(raw)) return message(humanize(canon));
+  }
+  return raw;
 }

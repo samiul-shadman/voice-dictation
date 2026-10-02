@@ -91,6 +91,8 @@ global master switch `globalShortcutsEnabled` (doc 11 §1 schema).
 - [x] duplicate-combo validation (canonical) + inline errors
 - [x] emit shortcut-armed / shortcut-disarmed on Pressed / Released
 - [ ] Manual matrix: X11 hold/toggle × both actions; grabbed-hotkey error path
+      (grabbed-hotkey path exercised on X11; reload-orphan and retry-recovery paths
+      covered by engine.test.ts fake timers; hold/toggle matrix still outstanding)
 
 ## Verification
 

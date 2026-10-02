@@ -6,6 +6,7 @@ import { isRegistered, register, unregister } from "@tauri-apps/plugin-global-sh
 import type { ShortcutEvent, ShortcutHandler } from "@tauri-apps/plugin-global-shortcut";
 import { canonicalCombo, toAccelerator } from "./canonical";
 import type { ActionId, Trigger } from "./canonical";
+import { registrationErrorMessage } from "./viewState";
 import { beginHold, endHold, onHoldEnd } from "./hold";
 import type { HoldKind } from "./hold";
 import { toggleVoiceNote } from "../voiceNote";
@@ -15,6 +16,8 @@ import type { Settings } from "../stores/settings";
 const ACTIONS: ActionId[] = ["voiceNote", "record"];
 const RESYNC_DEBOUNCE_MS = 200;
 const TOGGLE_ARMED_MS = 1200;
+const RETRY_BASE_MS = 2_000;
+const RETRY_MAX_MS = 30_000;
 
 export interface ArmedState {
   combo: string;
@@ -57,6 +60,8 @@ let live = new Map<string, LiveEntry>();
 let actionConfig = new Map<ActionId, { canon: string; trigger: Trigger }>();
 let chain: Promise<void> = Promise.resolve();
 let resyncTimer: ReturnType<typeof setTimeout> | null = null;
+let retryTimer: ReturnType<typeof setTimeout> | null = null;
+let retryDelayMs = RETRY_BASE_MS;
 let toggleTimer: ReturnType<typeof setTimeout> | null = null;
 let statusSnapshot: ShortcutStatusState = {
   actions: { voiceNote: { state: "off" }, record: { state: "off" } },
@@ -228,14 +233,21 @@ async function runSync(): Promise<void> {
   for (const action of conflicts) {
     errors.set(action, "combo conflicts with another action");
   }
+  let registrationFailed = false;
   for (const [accel, want] of desiredAccel) {
     const existing = live.get(accel);
     if (existing && existing.action === want.action && existing.canon === want.canon) continue;
     try {
+      // `live` is only this JS session's view of the OS registry. A frontend reload drops
+      // it while the plugin keeps the grab and its now-dead handler, and X11 lets a client
+      // re-grab a key it already owns — so a bare re-register is rejected by global-hotkey's
+      // own map. Release first, which also refreshes the handler.
+      if (await isRegistered(accel)) await unregister(accel);
       await register(accel, makeHandler(want.action));
       live.set(accel, { action: want.action, canon: want.canon });
     } catch (e) {
-      errors.set(want.action, readableError(e));
+      registrationFailed = true;
+      errors.set(want.action, registrationErrorMessage(readableError(e), want.canon));
     }
   }
 
@@ -249,6 +261,28 @@ async function runSync(): Promise<void> {
     else nextActions[action] = { state: "registered" };
   }
   applyStatus(nextActions);
+
+  // An intra-app conflict is a configuration mistake only a settings edit can clear, so
+  // only an actual failed registration is worth polling for.
+  if (registrationFailed) {
+    scheduleRetry();
+  } else {
+    clearRetry();
+    retryDelayMs = RETRY_BASE_MS;
+  }
+}
+
+function sameStatus(a: ShortcutStatusState, b: ShortcutStatusState): boolean {
+  return (
+    a.ready === b.ready &&
+    a.registeredCount === b.registeredCount &&
+    a.firstError === b.firstError &&
+    ACTIONS.every(
+      (action) =>
+        a.actions[action].state === b.actions[action].state &&
+        a.actions[action].detail === b.actions[action].detail,
+    )
+  );
 }
 
 function applyStatus(actions: Record<ActionId, ShortcutStatusEntry>): void {
@@ -256,9 +290,11 @@ function applyStatus(actions: Record<ActionId, ShortcutStatusEntry>): void {
   const firstError = ACTIONS.map((action) =>
     actions[action].state === "error" ? actions[action].detail : undefined,
   ).find((detail): detail is string => typeof detail === "string");
-  statusSnapshot = firstError
+  const next: ShortcutStatusState = firstError
     ? { actions, registeredCount, firstError, ready: true }
     : { actions, registeredCount, ready: true };
+  if (sameStatus(statusSnapshot, next)) return;
+  statusSnapshot = next;
   for (const fn of statusListeners) fn();
 }
 
@@ -274,6 +310,26 @@ function scheduleResync(): void {
     resyncTimer = null;
     void syncGlobalShortcuts();
   }, RESYNC_DEBOUNCE_MS);
+}
+
+function clearRetry(): void {
+  if (retryTimer) {
+    clearTimeout(retryTimer);
+    retryTimer = null;
+  }
+}
+
+// A combo grabbed by another application frees itself when that application exits, but
+// nothing re-runs the sync on that event, so keep retrying on a backoff until every
+// action registers again.
+function scheduleRetry(): void {
+  if (retryTimer) return;
+  const delay = retryDelayMs;
+  retryDelayMs = Math.min(retryDelayMs * 2, RETRY_MAX_MS);
+  retryTimer = setTimeout(() => {
+    retryTimer = null;
+    void syncGlobalShortcuts();
+  }, delay);
 }
 
 export function initShortcutEngine(): void {
@@ -304,6 +360,8 @@ export function resetShortcutEngineForTests(): void {
     clearTimeout(resyncTimer);
     resyncTimer = null;
   }
+  clearRetry();
+  retryDelayMs = RETRY_BASE_MS;
   clearToggleTimer();
   initialized = false;
   armed = null;

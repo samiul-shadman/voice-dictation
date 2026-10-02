@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { emitTo } from "@tauri-apps/api/event";
+import { register } from "@tauri-apps/plugin-global-shortcut";
 import { cancelRecording, startRecording, stopRecording } from "../stores/recorder";
 import { endVoiceNoteHold, startVoiceNoteHold, toggleVoiceNote } from "../voiceNote";
 import type { Settings } from "../stores/settings";
@@ -32,6 +33,11 @@ vi.mock("@tauri-apps/plugin-global-shortcut", () => ({
     for (const shortcut of Array.isArray(shortcuts) ? shortcuts : [shortcuts]) {
       if (mockState.failing.has(shortcut)) {
         throw new Error(`failed to register: ${shortcut} is already registered by another application`);
+      }
+      if (mockState.handlers.has(shortcut)) {
+        throw new Error(
+          `HotKey already registered: HotKey { mods: Modifiers(CONTROL), key: Space, id: 524350 }`,
+        );
       }
       mockState.handlers.set(shortcut, handler);
     }
@@ -169,9 +175,56 @@ describe("shortcut engine", () => {
     const status = getShortcutStatus();
     expect(status.actions.voiceNote.state).toBe("registered");
     expect(status.actions.record.state).toBe("error");
-    expect(status.actions.record.detail).toMatch(/already registered/);
-    expect(status.firstError).toMatch(/already registered/);
+    expect(status.actions.record.detail).toBe(
+      "another application is already using Ctrl + Alt + R — close it or pick a different combo",
+    );
+    expect(status.firstError).toMatch(/another application is already using/);
     expect(status.registeredCount).toBe(1);
+  });
+
+  it("re-registers a shortcut orphaned by a previous page load", async () => {
+    initShortcutEngine();
+    await syncGlobalShortcuts();
+    expect(getShortcutStatus().actions.voiceNote.state).toBe("registered");
+    const orphaned = mockState.handlers.get("Control+Shift+Space");
+
+    resetShortcutEngineForTests();
+    expect(mockState.handlers.has("Control+Shift+Space")).toBe(true);
+
+    initShortcutEngine();
+    await syncGlobalShortcuts();
+
+    const status = getShortcutStatus();
+    expect(status.actions.voiceNote.state).toBe("registered");
+    expect(status.firstError).toBeUndefined();
+    const refreshed = mockState.handlers.get("Control+Shift+Space");
+    expect(refreshed).toBeDefined();
+    expect(refreshed).not.toBe(orphaned);
+  });
+
+  it("retries a failed registration and recovers once the grab is released", async () => {
+    vi.useFakeTimers();
+    mockState.failing.add("Control+Alt+KeyR");
+    initShortcutEngine();
+    await syncGlobalShortcuts();
+    expect(getShortcutStatus().actions.record.state).toBe("error");
+
+    mockState.failing.clear();
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    const status = getShortcutStatus();
+    expect(status.actions.record.state).toBe("registered");
+    expect(status.firstError).toBeUndefined();
+    expect(mockState.handlers.has("Control+Alt+KeyR")).toBe(true);
+  });
+
+  it("stops retrying once every action registers", async () => {
+    vi.useFakeTimers();
+    initShortcutEngine();
+    await syncGlobalShortcuts();
+    const callsBefore = vi.mocked(register).mock.calls.length;
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(vi.mocked(register).mock.calls.length).toBe(callsBefore);
   });
 
   it("reports disabled actions and unregisters them", async () => {
