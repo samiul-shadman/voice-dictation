@@ -317,7 +317,7 @@ export function LibraryPage() {
                   <Tooltip label="Delete recording" side="left">
                     <IconButton
                       label={`Delete ${meta.name}`}
-                      className="shrink-0 hover:text-err"
+                      className="shrink-0 border border-err/40 bg-err-soft text-err! hover:border-err! hover:bg-err-soft! hover:text-err!"
                       onClick={() => setDeleteTarget(meta)}
                     >
                       <Trash2 size={16} strokeWidth={1.75} />
