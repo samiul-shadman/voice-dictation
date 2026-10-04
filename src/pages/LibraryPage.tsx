@@ -301,7 +301,7 @@ export function LibraryPage() {
                       <IconButton
                         label={isExpanded ? "Hide transcript" : "View transcript"}
                         aria-expanded={isExpanded}
-                        className="shrink-0"
+                        className="shrink-0 border border-border-strong bg-surface-2 hover:border-accent/40"
                         onClick={() => setExpanded(isExpanded ? null : meta.path)}
                       >
                         <ChevronDown
