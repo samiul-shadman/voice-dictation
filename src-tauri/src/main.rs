@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    local_audio_transcription_tool_v2_lib::run()
+    voice_dictation_lib::run()
 }

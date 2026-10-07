@@ -2525,35 +2525,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "47d9d19d1d6efa0109d2f65ff4c85cddd50bd572e5a00127ab10987290bcefae"
 
 [[package]]
-name = "local-audio-transcription-tool-v2"
-version = "0.1.6"
-dependencies = [
- "audioadapter-buffers",
- "cpal",
- "enigo",
- "gtk",
- "hound",
- "mp3lame-encoder",
- "reqwest 0.12.28",
- "rubato",
- "serde",
- "serde_json",
- "sha2",
- "sherpa-rs",
- "shine-rs",
- "symphonia",
- "tauri",
- "tauri-build",
- "tauri-plugin-clipboard-manager",
- "tauri-plugin-dialog",
- "tauri-plugin-global-shortcut",
- "tauri-plugin-opener",
- "tempfile",
- "toml 0.8.2",
- "x11rb",
-]
-
-[[package]]
 name = "lock_api"
 version = "0.4.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5616,6 +5587,35 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.119",
+]
+
+[[package]]
+name = "voice-dictation"
+version = "0.1.6"
+dependencies = [
+ "audioadapter-buffers",
+ "cpal",
+ "enigo",
+ "gtk",
+ "hound",
+ "mp3lame-encoder",
+ "reqwest 0.12.28",
+ "rubato",
+ "serde",
+ "serde_json",
+ "sha2",
+ "sherpa-rs",
+ "shine-rs",
+ "symphonia",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-clipboard-manager",
+ "tauri-plugin-dialog",
+ "tauri-plugin-global-shortcut",
+ "tauri-plugin-opener",
+ "tempfile",
+ "toml 0.8.2",
+ "x11rb",
 ]
 
 [[package]]

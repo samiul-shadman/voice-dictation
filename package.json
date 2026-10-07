@@ -1,5 +1,5 @@
 {
-  "name": "local-audio-transcription-tool-v2",
+  "name": "voice-dictation",
   "private": true,
   "version": "0.1.6",
   "type": "module",

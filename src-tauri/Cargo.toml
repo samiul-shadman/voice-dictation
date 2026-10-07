@@ -1,12 +1,12 @@
 [package]
-name = "local-audio-transcription-tool-v2"
+name = "voice-dictation"
 version = "0.1.6"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2021"
 
 [lib]
-name = "local_audio_transcription_tool_v2_lib"
+name = "voice_dictation_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
