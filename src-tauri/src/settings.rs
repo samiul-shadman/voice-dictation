@@ -2,11 +2,13 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, Manager};
 
 pub const PASTE_MODES: [&str; 5] = ["auto", "ctrl_v", "ctrl_shift_v", "shift_insert", "clipboard_only"];
 pub const INDICATOR_MODES: [&str; 3] = ["floating", "panel", "both"];
+const INPUT_DEVICE_ID_MAX_LEN: usize = 512;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
@@ -15,6 +17,7 @@ pub struct AppSettings {
     pub shortcuts: ShortcutsSettings,
     pub audio_dir: String,
     pub audio_format: String,
+    pub input_device: String,
     pub paste_mode: String,
     pub default_model: String,
     pub models_dir: Option<String>,
@@ -30,6 +33,7 @@ impl Default for AppSettings {
             shortcuts: ShortcutsSettings::default(),
             audio_dir: String::new(),
             audio_format: "mp3".to_string(),
+            input_device: String::new(),
             paste_mode: "auto".to_string(),
             default_model: String::new(),
             models_dir: None,
@@ -260,6 +264,9 @@ fn diff_fields(before: &AppSettings, after: &AppSettings) -> Vec<&'static str> {
     if before.audio_format != after.audio_format {
         fields.push("audioFormat");
     }
+    if before.input_device != after.input_device {
+        fields.push("inputDevice");
+    }
     if before.paste_mode != after.paste_mode {
         fields.push("pasteMode");
     }
@@ -298,6 +305,22 @@ pub fn validate_trigger(trigger: &str) -> Result<(), String> {
 pub fn validate_audio_format(format: &str) -> Result<(), String> {
     if format != "mp3" && format != "wav" {
         return Err("audio format must be \"mp3\" or \"wav\"".to_string());
+    }
+    Ok(())
+}
+
+// Empty means "follow the system default". Anything else must parse as a cpal
+// device id so settings.json never accumulates an id the recorder cannot resolve.
+pub fn validate_input_device(id: &str) -> Result<(), String> {
+    let id = id.trim();
+    if id.is_empty() {
+        return Ok(());
+    }
+    if id.len() > INPUT_DEVICE_ID_MAX_LEN {
+        return Err("microphone id is too long to be a real device identifier".to_string());
+    }
+    if cpal::DeviceId::from_str(id).is_err() {
+        return Err("microphone id is not a valid device identifier".to_string());
     }
     Ok(())
 }
@@ -401,6 +424,16 @@ pub fn set_audio_format(app: AppHandle, format: String) -> Result<(), String> {
     validate_audio_format(&format)?;
     update_settings(&app, move |s| {
         s.audio_format = format;
+        Ok(())
+    })
+}
+
+#[tauri::command]
+pub fn set_input_device(app: AppHandle, device: String) -> Result<(), String> {
+    let device = device.trim().to_string();
+    validate_input_device(&device)?;
+    update_settings(&app, move |s| {
+        s.input_device = device;
         Ok(())
     })
 }
@@ -541,6 +574,48 @@ mod tests {
     }
 
     #[test]
+    fn default_input_device_is_empty_so_the_system_default_is_used() {
+        assert_eq!(AppSettings::default().input_device, "");
+    }
+
+    #[test]
+    fn validate_input_device_accepts_empty_and_wellformed_and_rejects_garbage() {
+        assert!(validate_input_device("").is_ok());
+        assert!(validate_input_device("   ").is_ok());
+        let host = if cfg!(target_os = "macos") {
+            "coreaudio"
+        } else if cfg!(target_os = "windows") {
+            "wasapi"
+        } else {
+            "alsa"
+        };
+        assert!(validate_input_device(&format!("{host}:hw:CARD=PCH,DEV=0")).is_ok());
+        assert!(validate_input_device(&format!("{host}:default")).is_ok());
+        // No host half at all — a truncated or hand-edited settings.json.
+        assert!(validate_input_device("pulse").is_err());
+        // Host half naming a backend this platform does not have.
+        assert!(validate_input_device("jack:default").is_err());
+        assert!(validate_input_device(&"a".repeat(INPUT_DEVICE_ID_MAX_LEN + 1)).is_err());
+    }
+
+    #[test]
+    fn settings_written_before_device_selection_still_load_as_system_default() {
+        let raw = r#"{"audioFormat":"wav","pasteMode":"auto","indicatorMode":"floating"}"#;
+        let parsed: AppSettings = serde_json::from_str(raw).expect("legacy settings parse");
+        assert_eq!(parsed.input_device, "");
+        assert_eq!(parsed.audio_format, "wav");
+
+        let round_trip = serde_json::to_string(&AppSettings {
+            input_device: "alsa:pulse".to_string(),
+            ..AppSettings::default()
+        })
+        .expect("serialize");
+        assert!(round_trip.contains("\"inputDevice\""));
+        let back: AppSettings = serde_json::from_str(&round_trip).expect("reparse");
+        assert_eq!(back.input_device, "alsa:pulse");
+    }
+
+    #[test]
     fn diff_fields_empty_when_settings_equal() {
         let before = AppSettings::default();
         let after = AppSettings::default();
@@ -569,6 +644,10 @@ mod tests {
             (
                 "audioFormat",
                 Box::new(|s: &mut AppSettings| s.audio_format = "wav".to_string()),
+            ),
+            (
+                "inputDevice",
+                Box::new(|s: &mut AppSettings| s.input_device = "alsa:pulse".to_string()),
             ),
             (
                 "pasteMode",
@@ -619,6 +698,7 @@ mod tests {
         after.shortcuts.record.combo = Some("ctrl+alt+r".to_string());
         after.audio_dir = "/tmp/audio".to_string();
         after.audio_format = "wav".to_string();
+        after.input_device = "alsa:pulse".to_string();
         after.paste_mode = "clipboard_only".to_string();
         after.default_model = "parakeet".to_string();
         after.models_dir = Some("/tmp/models".to_string());
@@ -634,6 +714,7 @@ mod tests {
                 "shortcuts.record",
                 "audioDir",
                 "audioFormat",
+                "inputDevice",
                 "pasteMode",
                 "defaultModel",
                 "modelsDir",

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { open as openDirectoryDialog } from "@tauri-apps/plugin-dialog";
@@ -12,20 +12,28 @@ import {
   RadioCardGroup,
   SectionCard,
   SegmentedControl,
+  Select,
   Tooltip,
   toast,
 } from "../components/ui";
 import type { BadgeKind } from "../components/ui/Badge";
 import type { RadioCardOption } from "../components/ui/RadioCardGroup";
+import type { SelectOption } from "../components/ui/Select";
 import {
   useAudioPrefs,
   useIndicatorMode,
+  useInputDevice,
   usePasteMode,
   useSettings,
 } from "../lib/stores/settings";
 import type { IndicatorMode, PasteMode } from "../lib/stores/settings";
 import { useEnvInfo, isLinux, isMac, recheckEnvInfo } from "../lib/stores/env";
 import type { EnvInfo, SessionType } from "../lib/stores/env";
+
+export interface InputDeviceInfo {
+  id: string;
+  name: string;
+}
 
 type PkgManager = "apt" | "dnf" | "pacman";
 
@@ -353,11 +361,15 @@ export function SettingsPage() {
   const settings = useSettings();
   const storePasteMode = usePasteMode();
   const storeIndicatorMode = useIndicatorMode();
+  const storeInputDevice = useInputDevice();
 
   const [pkgManager, setPkgManager] = useState<PkgManager>("apt");
   const [settingsWarning, setSettingsWarning] = useState<string | null>(null);
   const [pendingPasteMode, setPendingPasteMode] = useState<PasteMode | null>(null);
   const [pendingIndicatorMode, setPendingIndicatorMode] = useState<IndicatorMode | null>(null);
+  const [pendingInputDevice, setPendingInputDevice] = useState<string | null>(null);
+  const [devices, setDevices] = useState<InputDeviceInfo[] | null>(null);
+  const [devicesError, setDevicesError] = useState<string | null>(null);
   const [defaultRecordingsDir, setDefaultRecordingsDir] = useState<string | null>(null);
   const [modelsDir, setModelsDir] = useState<string | null>(null);
   const [defaultModelsDir, setDefaultModelsDir] = useState<string | null>(null);
@@ -366,6 +378,19 @@ export function SettingsPage() {
   const modelsDirSetting = settings ? settings.modelsDir : undefined;
   const activePasteMode = pendingPasteMode ?? storePasteMode ?? "auto";
   const activeIndicatorMode = pendingIndicatorMode ?? storeIndicatorMode ?? "floating";
+  const activeInputDevice = pendingInputDevice ?? storeInputDevice ?? "";
+
+  const loadDevices = useCallback(() => {
+    void invoke<InputDeviceInfo[]>("list_input_devices")
+      .then((list) => {
+        setDevices(list);
+        setDevicesError(null);
+      })
+      .catch((e) => {
+        setDevices([]);
+        setDevicesError(errorMessage(e));
+      });
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -382,6 +407,12 @@ export function SettingsPage() {
   useEffect(() => {
     void recheckEnvInfo();
   }, []);
+
+  // Re-enumerates whenever the stored id changes, so an id that stopped
+  // resolving is noticed without waiting for a restart.
+  useEffect(() => {
+    loadDevices();
+  }, [storeInputDevice, loadDevices]);
 
   useEffect(() => {
     let cancelled = false;
@@ -429,6 +460,10 @@ export function SettingsPage() {
     setPendingIndicatorMode(null);
   }, [storeIndicatorMode]);
 
+  useEffect(() => {
+    setPendingInputDevice(null);
+  }, [storeInputDevice]);
+
   async function handlePasteModeChange(mode: PasteMode): Promise<void> {
     if (mode === activePasteMode) return;
     setPendingPasteMode(mode);
@@ -448,6 +483,17 @@ export function SettingsPage() {
     } catch (error) {
       setPendingIndicatorMode(null);
       toast("error", `Could not set indicator mode: ${errorMessage(error)}`);
+    }
+  }
+
+  async function handleInputDeviceChange(id: string): Promise<void> {
+    if (id === activeInputDevice) return;
+    setPendingInputDevice(id);
+    try {
+      await invoke("set_input_device", { device: id });
+    } catch (error) {
+      setPendingInputDevice(null);
+      toast("error", `Could not set microphone: ${errorMessage(error)}`);
     }
   }
 
@@ -555,6 +601,19 @@ export function SettingsPage() {
   const audioDirIsDefault = samePath(audioDir, defaultRecordingsDir);
   const modelsDirIsDefault = samePath(modelsDir, defaultModelsDir);
 
+  const deviceOptions: SelectOption<string>[] = [
+    { value: "", label: "System default" },
+    ...(devices ?? []).map((device) => ({ value: device.id, label: device.name })),
+  ];
+  // An empty id means "follow the OS", which is always satisfiable; a non-empty
+  // id that no longer enumerates means the saved device is gone. Gated on the
+  // list having loaded so a saved device never flashes "not connected".
+  const selectedDeviceMissing =
+    devices !== null &&
+    activeInputDevice !== "" &&
+    !devices.some((d) => d.id === activeInputDevice);
+  const activeDevice = devices?.find((d) => d.id === activeInputDevice) ?? null;
+
   return (
     <>
       <PageHeader
@@ -600,6 +659,63 @@ export function SettingsPage() {
             </div>
           ) : (
             <p className="py-2 text-[13px] text-text-3">Detecting environment…</p>
+          )}
+        </SectionCard>
+
+        <SectionCard
+          title="Recording"
+          description="Which microphone dictation captures from."
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="text-[13px] font-medium text-text">Microphone</span>
+                {selectedDeviceMissing ? (
+                  <Badge kind="warn">not connected</Badge>
+                ) : devices !== null ? (
+                  <Badge kind="success">ready</Badge>
+                ) : null}
+              </div>
+              <p className="mt-1 text-xs text-text-3">
+                {devices === null
+                  ? "Looking for microphones…"
+                  : selectedDeviceMissing
+                    ? "Recording will fail until you reconnect this microphone or pick another."
+                    : activeDevice
+                      ? activeDevice.name
+                      : "Follows whatever the OS picks as the default input. Bluetooth headsets are selected there."}
+              </p>
+            </div>
+            <div className="flex shrink-0 items-center gap-1.5">
+              <Select
+                options={deviceOptions}
+                value={devices === null ? null : activeInputDevice}
+                onChange={(id) => void handleInputDeviceChange(id)}
+                ariaLabel="Microphone"
+                disabled={pendingInputDevice !== null}
+                placeholder={
+                  devices === null
+                    ? "Looking for microphones…"
+                    : selectedDeviceMissing
+                      ? `${activeInputDevice} (not connected)`
+                      : undefined
+                }
+                className="w-[280px]"
+              />
+              <Tooltip label="Rescan microphones">
+                <IconButton label="Rescan microphones" onClick={loadDevices}>
+                  <RefreshCw size={14} strokeWidth={1.75} />
+                </IconButton>
+              </Tooltip>
+            </div>
+          </div>
+          {devicesError && (
+            <p className="mt-2 text-xs text-warn">Could not list microphones: {devicesError}</p>
+          )}
+          {devices !== null && devices.length === 0 && !devicesError && (
+            <p className="mt-2 text-xs text-text-3">
+              No microphones were reported. Check that one is connected and enabled, then rescan.
+            </p>
           )}
         </SectionCard>
 

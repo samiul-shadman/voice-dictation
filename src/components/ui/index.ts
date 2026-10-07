@@ -7,6 +7,8 @@ export { default as KeyInput } from "./KeyInput";
 export type { KeyInputProps } from "./KeyInput";
 export { SegmentedControl } from "./SegmentedControl";
 export type { SegmentedControlProps, SegmentedOption } from "./SegmentedControl";
+export { Select } from "./Select";
+export type { SelectProps, SelectOption } from "./Select";
 export { RadioCardGroup } from "./RadioCardGroup";
 export type { RadioCardGroupProps, RadioCardOption } from "./RadioCardGroup";
 export { Switch } from "./Switch";

@@ -105,6 +105,7 @@ function settingsWith(opts?: {
     },
     audioDir: "/tmp/voice-dictation/recordings",
     audioFormat: "mp3",
+    inputDevice: "",
     pasteMode: "auto",
     defaultModel: "",
     modelsDir: null,

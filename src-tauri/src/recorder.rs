@@ -1,9 +1,11 @@
 use crate::audiodecode;
 use crate::settings::{validate_audio_format, with_settings};
 use serde::Serialize;
+use std::collections::HashMap;
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
@@ -39,6 +41,164 @@ pub struct RecordingMeta {
 pub struct RecordingState {
     pub recording: bool,
     pub stopping: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InputDeviceInfo {
+    pub id: String,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RawDevice {
+    host: cpal::HostId,
+    // ALSA reports the pcm name here; other backends report something else.
+    driver: String,
+    info: InputDeviceInfo,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum PcmKind {
+    Hardware { card: u32, dev: u32 },
+    Routing,
+    Plugin,
+}
+
+// ALSA exposes one physical capture endpoint under a dozen names — hw:,
+// plughw:, sysdefault:, front:, surround*, dmix:, usbstream: — and every DSP
+// plugin (null, speex, upmix, …) shows up as its own "device" because plugin
+// hints carry no IOID and so default to Duplex. Only the hw:/plughw: forms name
+// real hardware, so everything else is noise in a picker.
+const HARDWARE_PCM_PREFIXES: [&str; 2] = ["hw", "plughw"];
+const ROUTING_PCMS: [&str; 4] = ["default", "pulse", "pipewire", "jack"];
+
+fn classify_pcm(driver: &str, cards: &CardIndex) -> PcmKind {
+    if ROUTING_PCMS.contains(&driver) {
+        return PcmKind::Routing;
+    }
+    let Some((prefix, rest)) = driver.split_once(':') else {
+        return PcmKind::Plugin;
+    };
+    if !HARDWARE_PCM_PREFIXES.contains(&prefix) {
+        return PcmKind::Plugin;
+    }
+    let mut card = None;
+    let mut dev = None;
+    for part in rest.split(',') {
+        if let Some(value) = part.strip_prefix("CARD=") {
+            card = Some(value);
+        } else if let Some(value) = part.strip_prefix("DEV=") {
+            dev = value.parse::<u32>().ok();
+        }
+    }
+    match (card.and_then(|c| cards.index_for(c)), dev) {
+        (Some(index), Some(dev)) => PcmKind::Hardware { card: index, dev },
+        _ => PcmKind::Plugin,
+    }
+}
+
+// cpal reports each physical endpoint twice over: once keyed by the card's
+// driver id ("CARD=Generic") and once by its numeric index ("CARD=1"). Both
+// spellings open the same PCM, so the dedup key has to be the index.
+#[cfg(target_os = "linux")]
+#[derive(Default)]
+struct CardIndex {
+    by_id: HashMap<String, u32>,
+}
+
+#[cfg(target_os = "linux")]
+impl CardIndex {
+    fn build() -> Self {
+        let mut by_id = HashMap::new();
+        for index in 0..64 {
+            if let Ok(id) = fs::read_to_string(format!("/proc/asound/card{index}/id")) {
+                by_id.insert(id.trim().to_string(), index);
+            }
+        }
+        Self { by_id }
+    }
+
+    // An unknown id resolves to nothing rather than to a guess: a wrong index
+    // would merge two genuinely different microphones into one row.
+    fn index_for(&self, id: &str) -> Option<u32> {
+        id.parse::<u32>()
+            .ok()
+            .or_else(|| self.by_id.get(id).copied())
+    }
+}
+
+// The kernel is the only card registry available without pulling in libasound
+// directly, and it is the same source cpal's own physical probing reads.
+#[cfg(not(target_os = "linux"))]
+#[derive(Default)]
+struct CardIndex;
+
+#[cfg(not(target_os = "linux"))]
+impl CardIndex {
+    fn build() -> Self {
+        Self
+    }
+
+    fn index_for(&self, _id: &str) -> Option<u32> {
+        None
+    }
+}
+
+// plughw: is the same endpoint with sample-format conversion inserted, so a
+// stream negotiated at the device's "best" config actually opens; a bare hw: can
+// fail UnsupportedConfig on exactly that config.
+fn hardware_prefix_rank(driver: &str) -> u8 {
+    match driver.split_once(':').map(|(prefix, _)| prefix) {
+        Some("plughw") => 0,
+        _ => 1,
+    }
+}
+
+fn collapse_hardware(devices: Vec<RawDevice>) -> Vec<InputDeviceInfo> {
+    collapse_hardware_with(devices, &CardIndex::build())
+}
+
+// The card index is injected so the dedup logic is testable against a fixed
+// fixture instead of whatever cards the host machine happens to have.
+fn collapse_hardware_with(devices: Vec<RawDevice>, cards: &CardIndex) -> Vec<InputDeviceInfo> {
+    let mut hardware: Vec<((u32, u32), u8, InputDeviceInfo)> = Vec::new();
+    let mut other: Vec<InputDeviceInfo> = Vec::new();
+    for raw in devices {
+        // Only ALSA re-exports one endpoint under a dozen alias names and
+        // reports DSP plugins as devices. CoreAudio and WASAPI enumerate real
+        // devices already, and their driver strings would be discarded as
+        // unrecognised — so those pass through untouched.
+        if raw.host != cpal::HostId::Alsa {
+            other.push(raw.info);
+            continue;
+        }
+        let PcmKind::Hardware { card, dev } = classify_pcm(&raw.driver, cards) else {
+            continue;
+        };
+        let key = (card, dev);
+        let rank = hardware_prefix_rank(&raw.driver);
+        match hardware.iter_mut().find(|(k, _, _)| *k == key) {
+            Some((_, current_rank, current)) if rank < *current_rank => {
+                *current_rank = rank;
+                *current = raw.info;
+            }
+            Some(_) => {}
+            None => hardware.push((key, rank, raw.info)),
+        }
+    }
+    let mut out: Vec<InputDeviceInfo> = hardware
+        .into_iter()
+        .map(|(_, _, info)| info)
+        .chain(other)
+        .collect();
+    out.sort_by(|a, b| {
+        a.name
+            .to_lowercase()
+            .cmp(&b.name.to_lowercase())
+            .then_with(|| a.id.cmp(&b.id))
+    });
+    out
 }
 
 #[derive(Clone, Serialize)]
@@ -78,9 +238,12 @@ impl Default for RecorderState {
 
 #[tauri::command(async)]
 pub fn start_recording(app: tauri::AppHandle, format: Option<String>) -> Result<(), String> {
-    let format = match format.as_deref() {
-        Some(f) => f.trim().to_ascii_lowercase(),
-        None => with_settings(&app, |s| s.audio_format.clone()),
+    let (format, input_device) = match format.as_deref() {
+        Some(f) => (
+            f.trim().to_ascii_lowercase(),
+            with_settings(&app, |s| s.input_device.clone()),
+        ),
+        None => with_settings(&app, |s| (s.audio_format.clone(), s.input_device.clone())),
     };
     validate_audio_format(&format)?;
     with_inner(&app, |inner| {
@@ -92,17 +255,14 @@ pub fn start_recording(app: tauri::AppHandle, format: Option<String>) -> Result<
         }
         Ok(())
     })?;
-    let dir = with_settings(&app, |s| PathBuf::from(s.audio_dir.clone()));
-    fs::create_dir_all(&dir).map_err(|e| format!("could not create recordings folder: {e}"))?;
-    let path = reserve_recording_path(&dir, &format)?;
 
+    // Device before path: a missing or unusable microphone must not leave a
+    // reserved zero-byte recording behind.
     let host = cpal::default_host();
-    let device = host
-        .default_input_device()
-        .ok_or_else(no_input_device_error)?;
+    let device = resolve_input_device(&host, &input_device)?;
     let config = device
         .default_input_config()
-        .map_err(|e| format!("could not read the microphone configuration: {e}"))?;
+        .map_err(|e| microphone_open_error("could not read the microphone configuration", e))?;
     let sample_rate = config.sample_rate();
     let stream_config = cpal::StreamConfig {
         channels: config.channels(),
@@ -110,23 +270,36 @@ pub fn start_recording(app: tauri::AppHandle, format: Option<String>) -> Result<
         buffer_size: cpal::BufferSize::Default,
     };
 
+    let dir = with_settings(&app, |s| PathBuf::from(s.audio_dir.clone()));
+    fs::create_dir_all(&dir).map_err(|e| format!("could not create recordings folder: {e}"))?;
+    let path = reserve_recording_path(&dir, &format)?;
+
     let (chunk_tx, chunk_rx) = mpsc::channel::<Vec<f32>>();
     let (done_tx, done_rx) = mpsc::channel::<WriterResult>();
     let device_error = Arc::new(AtomicBool::new(false));
 
-    let stream = capture_stream(
+    let stream = match capture_stream(
         &device,
         config.sample_format(),
         stream_config,
         chunk_tx.clone(),
         app.clone(),
         device_error.clone(),
-    )?;
+    ) {
+        Ok(stream) => stream,
+        Err(e) => {
+            let _ = fs::remove_file(&path);
+            return Err(e);
+        }
+    };
     if let Err(e) = stream.play() {
         drop(stream);
         drop(chunk_tx);
         let _ = fs::remove_file(&path);
-        return Err(format!("could not start the microphone stream: {e}"));
+        return Err(microphone_open_error(
+            "could not start the microphone stream",
+            e,
+        ));
     }
 
     // After play() so the mic is already live and the load overlaps the user
@@ -217,6 +390,16 @@ pub fn recording_state(app: tauri::AppHandle) -> RecordingState {
         recording: inner.recording.is_some(),
         stopping: inner.stopping,
     })
+}
+
+#[tauri::command(async)]
+pub fn list_input_devices() -> Result<Vec<InputDeviceInfo>, String> {
+    let host = cpal::default_host();
+    let devices = host
+        .input_devices()
+        .map_err(|e| format!("could not list the microphones: {e}"))?;
+    let all: Vec<RawDevice> = devices.filter_map(describe_device).collect();
+    Ok(collapse_hardware(all))
 }
 
 #[tauri::command(async)]
@@ -376,6 +559,71 @@ fn no_input_device_error() -> String {
     }
 }
 
+fn missing_device_error(id: &str) -> String {
+    format!(
+        "the selected microphone ({id}) is not connected — reconnect it, or pick another under Settings → Recording"
+    )
+}
+
+fn unparsable_device_id_error(id: &str) -> String {
+    format!(
+        "the saved microphone id ({id}) is not a valid device identifier — pick a microphone again under Settings → Recording"
+    )
+}
+
+fn device_busy_error() -> String {
+    "the selected microphone is in use by another application — often the sound server — so it cannot be opened directly; choose System default under Settings → Recording".to_string()
+}
+
+// A sound server holding a hardware endpoint is the common case for a specific
+// ALSA device, and its raw errno ("Device or resource busy") explains nothing to
+// a user who only knows the app has a microphone picker.
+fn microphone_open_error(context: &str, e: cpal::Error) -> String {
+    if e.kind() == cpal::ErrorKind::DeviceBusy {
+        return device_busy_error();
+    }
+    format!("{context}: {e}")
+}
+
+// An empty saved id means "follow whatever the OS picks", so a saved device that
+// vanishes never strands the user on a stale identifier.
+fn resolve_input_device(host: &cpal::Host, saved_id: &str) -> Result<cpal::Device, String> {
+    let saved_id = saved_id.trim();
+    if saved_id.is_empty() {
+        return host
+            .default_input_device()
+            .ok_or_else(no_input_device_error);
+    }
+    let parsed =
+        cpal::DeviceId::from_str(saved_id).map_err(|_| unparsable_device_id_error(saved_id))?;
+    host.device_by_id(&parsed)
+        .ok_or_else(|| missing_device_error(saved_id))
+}
+
+// Deliberately does not call supported_input_configs(): on ALSA that opens the
+// PCM, which is slow and reports EBUSY for hardware the sound server already
+// holds. The description is cached by the backend at enumeration time.
+fn describe_device(device: cpal::Device) -> Option<RawDevice> {
+    let device_id = device.id().ok()?;
+    let host = device_id.host();
+    let id = device_id.to_string();
+    let description = device.description().ok();
+    let driver = description
+        .as_ref()
+        .and_then(|d| d.driver().map(str::to_string))
+        .unwrap_or_default();
+    let name = description
+        .as_ref()
+        .map(|d| d.name().to_string())
+        .filter(|n| !n.trim().is_empty())
+        .unwrap_or_else(|| id.clone());
+    Some(RawDevice {
+        host,
+        driver,
+        info: InputDeviceInfo { id, name },
+    })
+}
+
 fn spawn_capture_stream<T>(
     device: &cpal::Device,
     stream_config: cpal::StreamConfig,
@@ -409,7 +657,7 @@ where
             },
             CAPTURE_TIMEOUT,
         )
-        .map_err(|e| format!("could not start the microphone capture: {e}"))
+        .map_err(|e| microphone_open_error("could not start the microphone capture", e))
 }
 
 fn mixdown_to_mono<T: Copy>(data: &[T], channels: usize) -> Vec<f32>
@@ -757,6 +1005,393 @@ fn unix_millis_now() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Card ids as /proc/asound spells them, so tests exercise the same
+    // id-to-index collapsing the real enumerator triggers.
+    fn cards() -> CardIndex {
+        let mut by_id = HashMap::new();
+        by_id.insert("Generic".to_string(), 1);
+        by_id.insert("Audio".to_string(), 2);
+        by_id.insert("NVidia".to_string(), 0);
+        CardIndex { by_id }
+    }
+
+    fn raw(driver: &str, id: &str, name: &str) -> RawDevice {
+        RawDevice {
+            host: cpal::HostId::Alsa,
+            driver: driver.to_string(),
+            info: InputDeviceInfo {
+                id: id.to_string(),
+                name: name.to_string(),
+            },
+        }
+    }
+
+    fn foreign(host: cpal::HostId, driver: &str, id: &str, name: &str) -> RawDevice {
+        RawDevice {
+            host,
+            driver: driver.to_string(),
+            info: InputDeviceInfo {
+                id: id.to_string(),
+                name: name.to_string(),
+            },
+        }
+    }
+
+    // The complete PCM inventory a three-microphone Linux box reports, as a
+    // plugin list and two flavours of every physical endpoint.
+    fn full_alsa_inventory() -> Vec<RawDevice> {
+        [
+            ("null", "alsa:null"),
+            ("lavrate", "alsa:lavrate"),
+            ("samplerate", "alsa:samplerate"),
+            ("speexrate", "alsa:speexrate"),
+            ("jack", "alsa:jack"),
+            ("oss", "alsa:oss"),
+            ("pipewire", "alsa:pipewire"),
+            ("pulse", "alsa:pulse"),
+            ("speex", "alsa:speex"),
+            ("upmix", "alsa:upmix"),
+            ("vdownmix", "alsa:vdownmix"),
+            ("default", "alsa:default"),
+            ("hdmi:CARD=NVidia,DEV=0", "alsa:hdmi:CARD=NVidia,DEV=0"),
+            ("dmix:CARD=NVidia,DEV=3", "alsa:dmix:CARD=NVidia,DEV=3"),
+            ("usbstream:CARD=NVidia", "alsa:usbstream:CARD=NVidia"),
+            ("hw:CARD=Generic,DEV=0", "alsa:hw:CARD=Generic,DEV=0"),
+            (
+                "plughw:CARD=Generic,DEV=0",
+                "alsa:plughw:CARD=Generic,DEV=0",
+            ),
+            ("sysdefault:CARD=Generic", "alsa:sysdefault:CARD=Generic"),
+            ("front:CARD=Generic,DEV=0", "alsa:front:CARD=Generic,DEV=0"),
+            (
+                "surround51:CARD=Generic,DEV=0",
+                "alsa:surround51:CARD=Generic,DEV=0",
+            ),
+            ("dmix:CARD=Generic,DEV=0", "alsa:dmix:CARD=Generic,DEV=0"),
+            ("usbstream:CARD=Generic", "alsa:usbstream:CARD=Generic"),
+            ("hw:CARD=Generic,DEV=2", "alsa:hw:CARD=Generic,DEV=2"),
+            (
+                "plughw:CARD=Generic,DEV=2",
+                "alsa:plughw:CARD=Generic,DEV=2",
+            ),
+            ("hw:CARD=Audio,DEV=0", "alsa:hw:CARD=Audio,DEV=0"),
+            ("plughw:CARD=Audio,DEV=0", "alsa:plughw:CARD=Audio,DEV=0"),
+            ("sysdefault:CARD=Audio", "alsa:sysdefault:CARD=Audio"),
+            ("front:CARD=Audio,DEV=0", "alsa:front:CARD=Audio,DEV=0"),
+            (
+                "surround71:CARD=Audio,DEV=0",
+                "alsa:surround71:CARD=Audio,DEV=0",
+            ),
+            ("iec958:CARD=Audio,DEV=0", "alsa:iec958:CARD=Audio,DEV=0"),
+            ("dmix:CARD=Audio,DEV=0", "alsa:dmix:CARD=Audio,DEV=0"),
+            ("usbstream:CARD=Audio", "alsa:usbstream:CARD=Audio"),
+        ]
+        .iter()
+        .map(|(driver, id)| {
+            let mut device = raw(driver, id, driver);
+            // Friendly names come from the card and device, so the two Generic
+            // endpoints are distinguishable the way a user would tell them apart.
+            device.info.name = match *driver {
+                "hw:CARD=Generic,DEV=0"
+                | "plughw:CARD=Generic,DEV=0"
+                | "front:CARD=Generic,DEV=0"
+                | "surround51:CARD=Generic,DEV=0"
+                | "dmix:CARD=Generic,DEV=0" => "ALC892 Analog".to_string(),
+                "hw:CARD=Generic,DEV=2" | "plughw:CARD=Generic,DEV=2" => {
+                    "ALC892 Alt Analog".to_string()
+                }
+                "hw:CARD=Audio,DEV=0"
+                | "plughw:CARD=Audio,DEV=0"
+                | "sysdefault:CARD=Audio"
+                | "front:CARD=Audio,DEV=0"
+                | "surround71:CARD=Audio,DEV=0"
+                | "iec958:CARD=Audio,DEV=0"
+                | "dmix:CARD=Audio,DEV=0"
+                | "usbstream:CARD=Audio" => "KT02H20 HIFI Audio USB Audio".to_string(),
+                other => other.to_string(),
+            };
+            device
+        })
+        .collect()
+    }
+
+    #[test]
+    fn classify_pcm_recognizes_hardware_routing_and_plugin_families() {
+        assert_eq!(
+            classify_pcm("hw:CARD=Generic,DEV=0", &cards()),
+            PcmKind::Hardware { card: 1, dev: 0 }
+        );
+        assert_eq!(
+            classify_pcm("plughw:CARD=Audio,DEV=2", &cards()),
+            PcmKind::Hardware { card: 2, dev: 2 }
+        );
+        for routing in ["default", "pulse", "pipewire", "jack"] {
+            assert_eq!(
+                classify_pcm(routing, &cards()),
+                PcmKind::Routing,
+                "{routing}"
+            );
+        }
+        for plugin in [
+            "null",
+            "oss",
+            "speex",
+            "upmix",
+            "vdownmix",
+            "lavrate",
+            "samplerate",
+            "speexrate",
+            // Card-scoped but not device-scoped: an alias for a whole card.
+            "sysdefault:CARD=Generic",
+            "usbstream:CARD=Audio",
+            // Device-scoped but bound to a routing/DSP helper, not the endpoint.
+            "front:CARD=Generic,DEV=0",
+            "surround51:CARD=Generic,DEV=0",
+            "dmix:CARD=Audio,DEV=0",
+            "iec958:CARD=Audio,DEV=0",
+            "hdmi:CARD=NVidia,DEV=0",
+        ] {
+            assert_eq!(classify_pcm(plugin, &cards()), PcmKind::Plugin, "{plugin}");
+        }
+    }
+
+    #[test]
+    fn classify_pcm_rejects_hardware_shapes_without_a_usable_device_number() {
+        assert_eq!(classify_pcm("hw:CARD=Generic", &cards()), PcmKind::Plugin);
+        assert_eq!(
+            classify_pcm("hw:CARD=Generic,DEV=x", &cards()),
+            PcmKind::Plugin
+        );
+        assert_eq!(classify_pcm("hw:DEV=0", &cards()), PcmKind::Plugin);
+    }
+
+    #[test]
+    fn collapse_hardware_reduces_the_full_alsa_inventory_to_one_row_per_endpoint() {
+        let ids: Vec<String> = collapse_hardware_with(full_alsa_inventory(), &cards())
+            .into_iter()
+            .map(|d| d.id)
+            .collect();
+        assert_eq!(
+            ids,
+            vec![
+                "alsa:plughw:CARD=Generic,DEV=2".to_string(),
+                "alsa:plughw:CARD=Generic,DEV=0".to_string(),
+                "alsa:plughw:CARD=Audio,DEV=0".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn collapse_hardware_prefers_plughw_over_hw_for_the_same_endpoint() {
+        let devices = vec![
+            raw("hw:CARD=Audio,DEV=0", "alsa:hw:CARD=Audio,DEV=0", "hw name"),
+            raw(
+                "plughw:CARD=Audio,DEV=0",
+                "alsa:plughw:CARD=Audio,DEV=0",
+                "plughw name",
+            ),
+        ];
+        let collapsed = collapse_hardware_with(devices, &cards());
+        assert_eq!(collapsed.len(), 1);
+        assert_eq!(collapsed[0].id, "alsa:plughw:CARD=Audio,DEV=0");
+    }
+
+    #[test]
+    fn collapse_hardware_keeps_hw_when_no_plughw_alias_exists() {
+        let collapsed = collapse_hardware_with(
+            vec![raw(
+                "hw:CARD=Generic,DEV=2",
+                "alsa:hw:CARD=Generic,DEV=2",
+                "ALC892 Alt Analog",
+            )],
+            &cards(),
+        );
+        assert_eq!(collapsed.len(), 1);
+        assert_eq!(collapsed[0].id, "alsa:hw:CARD=Generic,DEV=2");
+    }
+
+    #[test]
+    fn collapse_hardware_separates_distinct_devices_on_one_card() {
+        let collapsed = collapse_hardware_with(
+            vec![
+                raw(
+                    "plughw:CARD=Generic,DEV=0",
+                    "alsa:plughw:CARD=Generic,DEV=0",
+                    "a Analog",
+                ),
+                raw(
+                    "plughw:CARD=Generic,DEV=2",
+                    "alsa:plughw:CARD=Generic,DEV=2",
+                    "b Alt Analog",
+                ),
+                raw(
+                    "plughw:CARD=Audio,DEV=0",
+                    "alsa:plughw:CARD=Audio,DEV=0",
+                    "c USB",
+                ),
+            ],
+            &cards(),
+        );
+        assert_eq!(
+            collapsed.iter().map(|d| d.id.as_str()).collect::<Vec<_>>(),
+            vec![
+                "alsa:plughw:CARD=Generic,DEV=0",
+                "alsa:plughw:CARD=Generic,DEV=2",
+                "alsa:plughw:CARD=Audio,DEV=0",
+            ]
+        );
+    }
+
+    #[test]
+    fn collapse_hardware_is_deterministic_regardless_of_input_order() {
+        let cards = cards();
+        let forward = collapse_hardware_with(full_alsa_inventory(), &cards);
+        let mut reversed = full_alsa_inventory();
+        reversed.reverse();
+        let backward = collapse_hardware_with(reversed, &cards);
+        assert_eq!(forward, backward);
+    }
+
+    #[test]
+    fn collapse_hardware_drops_routing_and_plugin_entries() {
+        let collapsed = collapse_hardware_with(
+            vec![
+                raw("default", "alsa:default", "Default ALSA Output"),
+                raw("pulse", "alsa:pulse", "PulseAudio Sound Server"),
+                raw("pipewire", "alsa:pipewire", "PipeWire Sound Server"),
+                raw("null", "alsa:null", "Discard all samples"),
+                raw("speex", "alsa:speex", "Plugin using Speex DSP"),
+                raw(
+                    "plughw:CARD=Generic,DEV=0",
+                    "alsa:plughw:CARD=Generic,DEV=0",
+                    "ALC892 Analog",
+                ),
+            ],
+            &cards(),
+        );
+        assert_eq!(
+            collapsed.iter().map(|d| d.id.as_str()).collect::<Vec<_>>(),
+            vec!["alsa:plughw:CARD=Generic,DEV=0"]
+        );
+    }
+
+    #[test]
+    fn collapse_hardware_of_only_plugins_is_empty_rather_than_inventing_a_device() {
+        assert!(collapse_hardware(vec![
+            raw("default", "alsa:default", "Default ALSA Output"),
+            raw("null", "alsa:null", "Discard all samples"),
+        ])
+        .is_empty());
+    }
+
+    #[test]
+    fn collapse_hardware_merges_the_card_id_and_numeric_index_spellings() {
+        // cpal enumerates each endpoint twice: once as CARD=<driver id> and once
+        // as CARD=<index>. Both open the same PCM, so the picker must show one
+        // row, not the same microphone twice under identical names.
+        let collapsed = collapse_hardware_with(
+            vec![
+                raw(
+                    "plughw:CARD=Generic,DEV=0",
+                    "alsa:plughw:CARD=Generic,DEV=0",
+                    "HD-Audio Generic, ALC892 Analog",
+                ),
+                raw(
+                    "plughw:CARD=1,DEV=0",
+                    "alsa:plughw:CARD=1,DEV=0",
+                    "HD-Audio Generic, ALC892 Analog",
+                ),
+            ],
+            &cards(),
+        );
+        assert_eq!(collapsed.len(), 1, "the same mic was listed twice");
+    }
+
+    #[test]
+    fn collapse_hardware_keeps_endpoints_apart_across_different_cards() {
+        let collapsed = collapse_hardware_with(
+            vec![
+                raw(
+                    "plughw:CARD=Generic,DEV=0",
+                    "alsa:plughw:CARD=Generic,DEV=0",
+                    "Built-in",
+                ),
+                raw(
+                    "plughw:CARD=Audio,DEV=0",
+                    "alsa:plughw:CARD=Audio,DEV=0",
+                    "USB",
+                ),
+            ],
+            &cards(),
+        );
+        assert_eq!(collapsed.len(), 2);
+    }
+
+    #[test]
+    fn collapse_hardware_keeps_non_alsa_backend_rows_intact() {
+        // CoreAudio/WASAPI enumerate real devices already and report a driver
+        // string that is not a pcm name, so running them through the ALSA rules
+        // would silently empty the picker on those platforms. Only ALSA is
+        // reachable on Linux, so this is provable on the other builds only.
+        let non_alsa = [
+            #[cfg(target_os = "macos")]
+            cpal::HostId::CoreAudio,
+            #[cfg(target_os = "windows")]
+            cpal::HostId::Wasapi,
+        ];
+        let Some(host) = non_alsa.first().copied() else {
+            return;
+        };
+        let collapsed = collapse_hardware(vec![foreign(
+            host,
+            "BuiltInMicrophoneDevice",
+            "coreaudio:BuiltInMicrophoneDevice",
+            "MacBook Pro Microphone",
+        )]);
+        assert_eq!(collapsed.len(), 1, "a foreign backend row must survive");
+        assert_eq!(collapsed[0].id, "coreaudio:BuiltInMicrophoneDevice");
+    }
+
+    #[test]
+    fn missing_device_error_names_the_device_and_where_to_change_it() {
+        let message = missing_device_error("alsa:hw:CARD=Headset,DEV=0");
+        assert!(message.contains("alsa:hw:CARD=Headset,DEV=0"));
+        assert!(message.contains("not connected"));
+        assert!(message.contains("Settings → Recording"));
+    }
+
+    #[test]
+    fn unparsable_device_id_error_names_the_offending_value() {
+        let message = unparsable_device_id_error("not a device id");
+        assert!(message.contains("not a device id"));
+        assert!(message.contains("Settings → Recording"));
+    }
+
+    #[test]
+    fn device_busy_error_points_at_the_system_default_instead_of_an_errno() {
+        let message = device_busy_error();
+        assert!(message.contains("System default"));
+        assert!(message.contains("Settings → Recording"));
+        assert!(!message.to_lowercase().contains("errno"));
+        assert!(!message.contains("Device or resource busy"));
+    }
+
+    #[test]
+    fn microphone_open_error_substitutes_the_busy_message_only_for_device_busy() {
+        let busy = microphone_open_error(
+            "could not start the microphone capture",
+            cpal::Error::from(cpal::ErrorKind::DeviceBusy),
+        );
+        assert_eq!(busy, device_busy_error());
+
+        let other = microphone_open_error(
+            "could not start the microphone capture",
+            cpal::Error::from(cpal::ErrorKind::UnsupportedConfig),
+        );
+        assert!(other.starts_with("could not start the microphone capture"));
+        assert!(!other.contains("System default"));
+    }
 
     #[test]
     fn allowlist_accepts_recordable_and_importable_audio() {

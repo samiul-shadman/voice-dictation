@@ -21,6 +21,7 @@ export interface Settings {
   };
   audioDir: string;
   audioFormat: AudioFormat;
+  inputDevice: string;
   pasteMode: PasteMode;
   defaultModel: string;
   modelsDir: string | null;
@@ -95,6 +96,11 @@ export function useShortcutConfig(): Settings["shortcuts"] | null {
 export function useAudioPrefs(): { audioDir: string; audioFormat: AudioFormat } | null {
   const settings = useSettingsStore();
   return settings ? { audioDir: settings.audioDir, audioFormat: settings.audioFormat } : null;
+}
+
+export function useInputDevice(): string | null {
+  const settings = useSettingsStore();
+  return settings ? settings.inputDevice : null;
 }
 
 export function usePasteMode(): PasteMode | null {
