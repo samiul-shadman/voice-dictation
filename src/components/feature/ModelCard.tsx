@@ -65,11 +65,9 @@ export default function ModelCard({
     status = <span className="text-xs text-text-3">Not downloaded</span>;
   }
 
-  const deleteLabel = model.isDefault
-    ? "Default model — remove default first"
-    : downloading
-      ? "Downloading — stop it before deleting"
-      : "Delete";
+  const deleteLabel = downloading
+    ? "Downloading — stop it before deleting"
+    : "Delete";
 
   return (
     <section className="flex min-w-0 flex-col gap-3 rounded-lg border border-border bg-surface p-5">
@@ -135,7 +133,7 @@ export default function ModelCard({
           <Tooltip label={deleteLabel}>
             <IconButton
               label={deleteLabel}
-              disabled={busy || downloading || model.isDefault}
+              disabled={busy || downloading}
               onClick={() => onDelete(model.id)}
               className="text-err! ml-auto"
             >

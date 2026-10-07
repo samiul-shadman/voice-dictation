@@ -96,13 +96,11 @@ describe("ModelCard", () => {
     expect(handlers.onDownload).toHaveBeenCalledWith(baseModel.id);
   });
 
-  it("disables Delete and hides Set default for the default model", () => {
+  it("enables Delete and hides Set default for the default model", () => {
     renderCard({ downloaded: true, isDefault: true });
 
-    const remove = screen.getByRole("button", {
-      name: "Default model — remove default first",
-    }) as HTMLButtonElement;
-    expect(remove.disabled).toBe(true);
+    const remove = screen.getByRole("button", { name: "Delete" }) as HTMLButtonElement;
+    expect(remove.disabled).toBe(false);
     expect(screen.queryByRole("button", { name: "Set default" })).toBeNull();
   });
 

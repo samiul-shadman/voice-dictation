@@ -485,10 +485,12 @@ pub fn delete_model(app: tauri::AppHandle, id: String) -> Result<(), String> {
     if crate::downloader::is_downloading(spec.id) {
         return Err("model is downloading — cancel the download before deleting".to_string());
     }
-    let is_default = crate::settings::with_settings(&app, |s| s.default_model == spec.id);
-    if is_default {
-        return Err("model is the default — choose another default before deleting".to_string());
-    }
+    crate::settings::update_settings(&app, move |s| {
+        if s.default_model == spec.id {
+            s.default_model = String::new();
+        }
+        Ok(())
+    })?;
     let dir = resolve_models_dir(&app).join(spec.id);
     if dir.exists() {
         fs::remove_dir_all(&dir).map_err(|e| format!("could not delete the model: {e}"))?;
