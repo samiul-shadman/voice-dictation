@@ -11,7 +11,7 @@ mod transcriber;
 mod transcripts;
 mod tray;
 
-use tauri::Manager;
+use tauri::{Manager, WindowEvent};
 
 pub fn run() {
     // WebKitGTK's DMA-BUF renderer fails to allocate GBM buffers on some X11
@@ -23,10 +23,29 @@ pub fn run() {
     }
 
     tauri::Builder::default()
+        // Must be the first plugin: a second launch focuses the running instance
+        // instead of starting a twin that fights over the global hotkey grab.
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_dialog::init())
+        .on_window_event(|window, event| {
+            // Closing the main window hides it to the tray so the process (and its
+            // global hotkey) stays alive; tray Quit is the real exit.
+            if window.label() == "main" {
+                if let WindowEvent::CloseRequested { api, .. } = event {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
+        })
         .setup(|app| {
             let settings = settings::SettingsState::load(app.handle())?;
             app.manage(settings);
