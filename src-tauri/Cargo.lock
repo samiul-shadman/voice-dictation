@@ -5591,7 +5591,7 @@ dependencies = [
 
 [[package]]
 name = "voice-dictation"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "audioadapter-buffers",
  "cpal",
