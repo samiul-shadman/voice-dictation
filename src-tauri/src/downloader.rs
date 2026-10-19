@@ -199,6 +199,7 @@ pub(crate) fn start_download(app: AppHandle, id: &str) -> Result<(), String> {
                 "download failed unexpectedly — retry the download".to_string(),
             ),
         };
+        let completed = matches!(outcome, DownloadOutcome::Completed);
         match outcome {
             DownloadOutcome::Completed => {
                 let _ = app_for_thread.emit(
@@ -224,6 +225,11 @@ pub(crate) fn start_download(app: AppHandle, id: &str) -> Result<(), String> {
             }
         }
         finish_download(&id_for_thread, &cancel);
+        // prewarm skips while any download is active, so it must run after the
+        // finished one is cleared from the map.
+        if completed {
+            crate::transcriber::prewarm(&app_for_thread);
+        }
     });
     if let Some(active) = lock_downloads().get_mut(spec.id) {
         active.thread = Some(handle);

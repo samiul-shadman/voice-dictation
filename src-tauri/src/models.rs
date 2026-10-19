@@ -496,6 +496,7 @@ pub fn delete_model(app: tauri::AppHandle, id: String) -> Result<(), String> {
         fs::remove_dir_all(&dir).map_err(|e| format!("could not delete the model: {e}"))?;
     }
     crate::transcriber::evict_engine_cache(&id);
+    crate::transcriber::prewarm(&app);
     Ok(())
 }
 
@@ -505,7 +506,9 @@ pub fn set_default_model(app: tauri::AppHandle, id: String) -> Result<(), String
     crate::settings::update_settings(&app, move |s| {
         s.default_model = spec.id.to_string();
         Ok(())
-    })
+    })?;
+    crate::transcriber::prewarm(&app);
+    Ok(())
 }
 
 #[tauri::command]
@@ -540,6 +543,7 @@ pub fn set_models_dir(app: tauri::AppHandle, dir: Option<String>) -> Result<(), 
         Ok(())
     })?;
     crate::transcriber::evict_all_engines();
+    crate::transcriber::prewarm(&app);
     Ok(())
 }
 
