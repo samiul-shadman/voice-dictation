@@ -32,12 +32,9 @@ cpal = "0.18.2"
 symphonia = { version = "0.6.1", features = ["mp3", "pcm", "flac", "vorbis", "isomp4", "aac", "wav", "ogg"] }
 rubato = "5.0.0"
 audioadapter-buffers = "5"
-# mp3lame-encoder 0.2.5 vendored LAME access-violates on windows-msvc during the
-# first encode (ABI/layout mismatch); windows encodes mp3 via pure-rust shine-rs.
-[target.'cfg(not(target_os = "windows"))'.dependencies]
-mp3lame-encoder = "0.2.5"
-
-[target.'cfg(target_os = "windows")'.dependencies]
+# mp3lame-encoder's vendored LAME crashed during encode (windows-msvc first encode,
+# plus mid-recording heap corruption on Linux), so mp3 is encoded with pure-rust
+# shine-rs on every platform.
 shine-rs = "0.1.4"
 
 [target.'cfg(target_os = "linux")'.dependencies]

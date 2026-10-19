@@ -127,7 +127,10 @@ __docs/features/         v2 post-mortem distilled into feature lessons
 - Linux remains the reference platform; X11 gives full paste + terminal detection,
   wlroots-Wayland uses `wtype`, GNOME-Wayland degrades to clipboard-only honestly.
 - macOS/Windows paths are being added behind `#[cfg(target_os)]`; audio is
-  pure-Rust (cpal + symphonia + rubato + mp3lame-encoder) — no external ffmpeg.
+  pure-Rust (cpal + symphonia + rubato + shine-rs) — no external ffmpeg.
+- The `libayatana-appindicator is deprecated` warning printed when the tray icon is
+  created comes from tao's Linux tray backend loading the C library; it is upstream
+  and cosmetic (packaged builds launched from the desktop show no console).
 - When adding a platform branch, keep the Linux behavior byte-for-byte and prefer
   a shared trait/function over divergent copies.
 - macOS needs TCC permissions surfaced as setup cards (Microphone, Accessibility);

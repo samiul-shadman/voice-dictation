@@ -14,9 +14,6 @@ use tauri::{AppHandle, Emitter, Manager};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{FromSample, Sample as CpalSample, SizedSample};
-#[cfg(not(target_os = "windows"))]
-use mp3lame_encoder::{Bitrate, FlushNoGap, MonoPcm as Mp3MonoPcm, Quality};
-#[cfg(target_os = "windows")]
 use shine_rs::{Mp3Encoder, Mp3EncoderConfig, StereoMode};
 
 const LEVEL_THROTTLE_MS: u64 = 50;
@@ -762,22 +759,6 @@ fn write_wav(path: &Path, sample_rate: u32, rx: &mpsc::Receiver<Vec<f32>>) -> Re
 }
 
 fn write_mp3(path: &Path, sample_rate: u32, rx: &mpsc::Receiver<Vec<f32>>) -> Result<u64, String> {
-    #[cfg(target_os = "windows")]
-    {
-        write_mp3_shine(path, sample_rate, rx)
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        write_mp3_lame(path, sample_rate, rx)
-    }
-}
-
-#[cfg(target_os = "windows")]
-fn write_mp3_shine(
-    path: &Path,
-    sample_rate: u32,
-    rx: &mpsc::Receiver<Vec<f32>>,
-) -> Result<u64, String> {
     let config = Mp3EncoderConfig::new()
         .sample_rate(sample_rate)
         .bitrate(192)
@@ -803,52 +784,6 @@ fn write_mp3_shine(
         .finish()
         .map_err(|e| format!("could not finalize the recording: {e}"))?;
     file.write_all(&tail)
-        .map_err(|e| format!("could not finalize the recording: {e}"))?;
-    file.flush()
-        .map_err(|e| format!("could not finalize the recording: {e}"))?;
-    Ok(frames)
-}
-
-#[cfg(not(target_os = "windows"))]
-fn write_mp3_lame(path: &Path, sample_rate: u32, rx: &mpsc::Receiver<Vec<f32>>) -> Result<u64, String> {
-    let mut builder = mp3lame_encoder::Builder::new()
-        .ok_or_else(|| "could not initialize the mp3 encoder".to_string())?;
-    builder
-        .set_sample_rate(sample_rate)
-        .map_err(|e| format!("could not configure the mp3 encoder: {e}"))?;
-    builder
-        .set_num_channels(1)
-        .map_err(|e| format!("could not configure the mp3 encoder: {e}"))?;
-    builder
-        .set_brate(Bitrate::Kbps192)
-        .map_err(|e| format!("could not configure the mp3 encoder: {e}"))?;
-    builder
-        .set_quality(Quality::VeryNice)
-        .map_err(|e| format!("could not configure the mp3 encoder: {e}"))?;
-    let mut encoder = builder
-        .build()
-        .map_err(|e| format!("could not initialize the mp3 encoder: {e}"))?;
-    let file = File::create(path).map_err(|e| format!("could not create recording: {e}"))?;
-    let mut file = BufWriter::new(file);
-    let mut frames = 0u64;
-    let mut encoded = Vec::new();
-    for chunk in rx {
-        let pcm: Vec<i16> = chunk.iter().map(|s| f32_to_i16_pcm(*s)).collect();
-        encoded.clear();
-        encoded.reserve(mp3lame_encoder::max_required_buffer_size(pcm.len()));
-        encoder
-            .encode_to_vec(Mp3MonoPcm(&pcm), &mut encoded)
-            .map_err(|e| format!("could not encode the recording: {e}"))?;
-        file.write_all(&encoded)
-            .map_err(|e| format!("could not write the recording: {e}"))?;
-        frames += pcm.len() as u64;
-    }
-    encoded.clear();
-    encoded.reserve(mp3lame_encoder::max_required_buffer_size(0));
-    encoder
-        .flush_to_vec::<FlushNoGap>(&mut encoded)
-        .map_err(|e| format!("could not finalize the recording: {e}"))?;
-    file.write_all(&encoded)
         .map_err(|e| format!("could not finalize the recording: {e}"))?;
     file.flush()
         .map_err(|e| format!("could not finalize the recording: {e}"))?;
@@ -1578,17 +1513,21 @@ mod tests {
     }
 
     #[test]
-    fn mp3_writer_encodes_chunks_without_a_zero_capacity_buffer() {
+    fn mp3_writer_encodes_chunks_and_produces_decodable_audio() {
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("rec.mp3");
         let (tx, rx) = mpsc::channel::<Vec<f32>>();
-        for _ in 0..3 {
+        for _ in 0..10 {
             let samples: Vec<f32> = (0..1000).map(|i| (i as f32 / 1000.0) * 0.5).collect();
             tx.send(samples).expect("send");
         }
         drop(tx);
         let frames = write_mp3(&path, 44_100, &rx).expect("mp3 written");
-        assert_eq!(frames, 3000);
+        assert_eq!(frames, 10_000);
         assert!(fs::metadata(&path).expect("metadata").len() > 100);
+        // The transcription path decodes with symphonia, so the encoder's output
+        // must round-trip through it — a written file that won't decode is unreadable.
+        let (decoded, _) = crate::audiodecode::decode_pcm16k_mono(&path).expect("mp3 decodes");
+        assert!(!decoded.is_empty());
     }
 }
